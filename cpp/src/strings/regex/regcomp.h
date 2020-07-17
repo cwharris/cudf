@@ -28,20 +28,33 @@ namespace detail {
  *	03xx are tokens, i.e. operands for operators
  * ```
  */
-enum InstType {
-  CHAR    = 0177,  // Literal character
-  RBRA    = 0201,  // Right bracket, )
-  LBRA    = 0202,  // Left bracket, (
-  OR      = 0204,  // Alternation, |
-  ANY     = 0300,  // Any character except newline, .
-  ANYNL   = 0301,  // Any character including newline, .
-  BOL     = 0303,  // Beginning of line, ^
-  EOL     = 0304,  // End of line, $
-  CCLASS  = 0305,  // Character class, []
-  NCCLASS = 0306,  // Negated character class, []
-  BOW     = 0307,  // Boundary of word, /b
-  NBOW    = 0310,  // Not boundary of word, /b
-  END     = 0377   // Terminate: match found
+enum class regex_token_type {
+  ERR          = 0,
+  CHAR         = 0177,  // Literal character
+  START        = 0200,  // Start, used for marker on stack
+  RBRA         = 0201,  // Right bracket, )
+  LBRA         = 0202,  // Left bracket, (
+  LBRA_NC      = 0203,  // non-capturing group
+  OR           = 0204,  // Alternation, |
+  CAT          = 0205,  // Concatentation, implicit operator
+  STAR         = 0206,  // Closure, *
+  STAR_LAZY    = 0207,
+  PLUS         = 0210,  // a+ == aa*
+  PLUS_LAZY    = 0211,
+  QUEST        = 0212,  // a? == a|nothing, i.e. 0 or 1 a's
+  QUEST_LAZY   = 0213,
+  COUNTED      = 0214,  // counted repeat a{2} a{3,5}
+  COUNTED_LAZY = 0215,
+  ANY          = 0300,  // Any character except newline, .
+  ANYNL        = 0301,  // Any character including newline, .
+  NOP          = 0302,  // No operation, internal use only
+  BOL          = 0303,  // Beginning of line, ^
+  EOL          = 0304,  // End of line, $
+  CCLASS       = 0305,  // Character class, []
+  NCCLASS      = 0306,  // Negated character class, []
+  BOW          = 0307,  // Boundary of word, /b
+  NBOW         = 0310,  // Not boundary of word, /b
+  END          = 0377,  // Terminate: match found
 };
 
 /**
@@ -58,7 +71,7 @@ struct reclass {
  * @brief Structure of an encoded regex instruction
  */
 struct reinst {
-  int32_t type; /* operator type or instruction type */
+  regex_token_type type; /* operator type or instruction type */
   union {
     int32_t cls_id;   /* class pointer */
     char32_t c;       /* character */
@@ -91,7 +104,7 @@ class reprog {
    */
   static reprog create_from(const char32_t* pattern);
 
-  int32_t add_inst(int32_t type);
+  int32_t add_inst(regex_token_type type);
   int32_t add_inst(reinst inst);
   int32_t add_class(reclass cls);
 

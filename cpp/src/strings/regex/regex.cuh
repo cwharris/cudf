@@ -90,7 +90,10 @@ class reprog_device {
   /**
    * @brief Returns true if this is an empty program.
    */
-  __device__ bool is_empty() const { return insts_counts() == 0 || get_inst(0)->type == END; }
+  __device__ bool is_empty() const
+  {
+    return insts_counts() == 0 || get_inst(0)->type == regex_token_type::END;
+  }
 
   /**
    * @brief Returns the number of regex groups found in the expression.

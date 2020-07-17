@@ -205,7 +205,7 @@ __device__ inline int32_t reprog_device::regexec(
   string_view const& dstr, reljunk& jnk, int32_t& begin, int32_t& end, int32_t group_id)
 {
   int32_t match                   = 0;
-  auto checkstart                 = jnk.starttype;
+  int32_t checkstart              = jnk.starttype;
   auto txtlen                     = dstr.length();
   auto pos                        = begin;
   auto eos                        = end;
@@ -215,15 +215,15 @@ __device__ inline int32_t reprog_device::regexec(
   jnk.list1->reset();
   do {
     /* fast check for first char */
-    if (checkstart) {
-      switch (jnk.starttype) {
-        case CHAR: {
+    if (checkstart != 0) {
+      switch (static_cast<regex_token_type>(jnk.starttype)) {
+        case regex_token_type::CHAR: {
           auto fidx = dstr.find(static_cast<char_utf8>(jnk.startchar), pos);
           if (fidx < 0) return match;
           pos = fidx;
           break;
         }
-        case BOL: {
+        case regex_token_type::BOL: {
           if (pos == 0) break;
           if (jnk.startchar != '^') return match;
           --pos;
@@ -258,36 +258,36 @@ __device__ inline int32_t reprog_device::regexec(
         int32_t id_activate = -1;
 
         switch (inst->type) {
-          case CHAR:
-          case ANY:
-          case ANYNL:
-          case CCLASS:
-          case NCCLASS:
-          case END: id_activate = inst_id; break;
-          case LBRA:
+          case regex_token_type::CHAR:
+          case regex_token_type::ANY:
+          case regex_token_type::ANYNL:
+          case regex_token_type::CCLASS:
+          case regex_token_type::NCCLASS:
+          case regex_token_type::END: id_activate = inst_id; break;
+          case regex_token_type::LBRA:
             if (inst->u1.subid == group_id) range.x = pos;
             id_activate = inst->u2.next_id;
             expanded    = true;
             break;
-          case RBRA:
+          case regex_token_type::RBRA:
             if (inst->u1.subid == group_id) range.y = pos;
             id_activate = inst->u2.next_id;
             expanded    = true;
             break;
-          case BOL:
+          case regex_token_type::BOL:
             if ((pos == 0) ||
                 ((inst->u1.c == '^') && (dstr[pos - 1] == static_cast<char_utf8>('\n')))) {
               id_activate = inst->u2.next_id;
               expanded    = true;
             }
             break;
-          case EOL:
+          case regex_token_type::EOL:
             if ((c == 0) || (inst->u1.c == '$' && c == '\n')) {
               id_activate = inst->u2.next_id;
               expanded    = true;
             }
             break;
-          case BOW: {
+          case regex_token_type::BOW: {
             auto codept           = utf8_to_codepoint(c);
             char32_t last_c       = static_cast<char32_t>(pos ? dstr[pos - 1] : 0);
             auto last_codept      = utf8_to_codepoint(last_c);
@@ -300,7 +300,7 @@ __device__ inline int32_t reprog_device::regexec(
             }
             break;
           }
-          case NBOW: {
+          case regex_token_type::NBOW: {
             auto codept           = utf8_to_codepoint(c);
             char32_t last_c       = static_cast<char32_t>(pos ? dstr[pos - 1] : 0);
             auto last_codept      = utf8_to_codepoint(last_c);
@@ -313,7 +313,7 @@ __device__ inline int32_t reprog_device::regexec(
             }
             break;
           }
-          case OR:
+          case regex_token_type::OR:
             jnk.list2->activate(inst->u1.right_id, range.x, range.y);
             id_activate = inst->u2.left_id;
             expanded    = true;
@@ -334,24 +334,24 @@ __device__ inline int32_t reprog_device::regexec(
       int32_t id_activate = -1;
 
       switch (inst->type) {
-        case CHAR:
+        case regex_token_type::CHAR:
           if (inst->u1.c == c) id_activate = inst->u2.next_id;
           break;
-        case ANY:
+        case regex_token_type::ANY:
           if (c != '\n') id_activate = inst->u2.next_id;
           break;
-        case ANYNL: id_activate = inst->u2.next_id; break;
-        case CCLASS: {
+        case regex_token_type::ANYNL: id_activate = inst->u2.next_id; break;
+        case regex_token_type::CCLASS: {
           reclass_device cls = get_class(inst->u1.cls_id);
           if (cls.is_match(c, _codepoint_flags)) id_activate = inst->u2.next_id;
           break;
         }
-        case NCCLASS: {
+        case regex_token_type::NCCLASS: {
           reclass_device cls = get_class(inst->u1.cls_id);
           if (!cls.is_match(c, _codepoint_flags)) id_activate = inst->u2.next_id;
           break;
         }
-        case END:
+        case regex_token_type::END:
           match = 1;
           begin = range.x;
           end   = group_id == 0 ? pos : range.y;
@@ -390,11 +390,11 @@ __device__ inline int32_t reprog_device::call_regexec(
   int32_t idx, string_view const& dstr, int32_t& begin, int32_t& end, int32_t group_id)
 {
   reljunk jnk;
-  jnk.starttype = 0;
-  jnk.startchar = 0;
-  int type      = get_inst(_startinst_id)->type;
-  if (type == CHAR || type == BOL) {
-    jnk.starttype = type;
+  jnk.starttype         = 0;
+  jnk.startchar         = 0;
+  regex_token_type type = get_inst(_startinst_id)->type;
+  if (type == regex_token_type::CHAR || type == regex_token_type::BOL) {
+    jnk.starttype = static_cast<int32_t>(type);
     jnk.startchar = get_inst(_startinst_id)->u1.c;
   }
 

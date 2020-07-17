@@ -27,20 +27,6 @@ namespace detail {
 namespace {
 // Bitmask of all operators
 #define OPERATOR_MASK 0200
-enum OperatorType {
-  START        = 0200,  // Start, used for marker on stack
-  LBRA_NC      = 0203,  // non-capturing group
-  CAT          = 0205,  // Concatentation, implicit operator
-  STAR         = 0206,  // Closure, *
-  STAR_LAZY    = 0207,
-  PLUS         = 0210,  // a+ == aa*
-  PLUS_LAZY    = 0211,
-  QUEST        = 0212,  // a? == a|nothing, i.e. 0 or 1 a's
-  QUEST_LAZY   = 0213,
-  COUNTED      = 0214,  // counted repeat a{2} a{3,5}
-  COUNTED_LAZY = 0215,
-  NOP          = 0302,  // No operation, internal use only
-};
 
 static reclass ccls_w(1);   // [a-z], [A-Z], [0-9], and '_'
 static reclass ccls_W(8);   // now ccls_w plus '\n'
@@ -50,7 +36,12 @@ static reclass ccls_d(4);   // digits [0-9]
 static reclass ccls_D(32);  // not ccls_d plus '\n'
 
 // Tables for analyzing quantifiers
-const std::array<int, 6> valid_preceding_inst_types{{CHAR, CCLASS, NCCLASS, ANY, ANYNL, RBRA}};
+const std::array<regex_token_type, 6> valid_preceding_inst_types{{regex_token_type::CHAR,
+                                                                  regex_token_type::CCLASS,
+                                                                  regex_token_type::NCCLASS,
+                                                                  regex_token_type::ANY,
+                                                                  regex_token_type::ANYNL,
+                                                                  regex_token_type::RBRA}};
 const std::array<char, 5> quantifiers{{'*', '?', '+', '{', '|'}};
 // Valid regex characters that can be escaping to be used as literals
 const std::array<char, 33> escapable_chars{
@@ -59,7 +50,7 @@ const std::array<char, 33> escapable_chars{
 
 }  // namespace
 
-int32_t reprog::add_inst(int32_t t)
+int32_t reprog::add_inst(regex_token_type t)
 {
   reinst inst;
   inst.type        = t;
@@ -137,9 +128,9 @@ class regex_parser {
     return false;
   }
 
-  int bldcclass()
+  regex_token_type bldcclass()
   {
-    int type = CCLASS;
+    regex_token_type type = regex_token_type::CCLASS;
     std::vector<char32_t> cls;
     int builtins = 0;
 
@@ -148,7 +139,7 @@ class regex_parser {
     char32_t c = 0;
     int quoted = nextc(c);
     if (!quoted && c == '^') {
-      type   = NCCLASS;
+      type   = regex_token_type::NCCLASS;
       quoted = nextc(c);
       cls.push_back('\n');
       cls.push_back('\n');
@@ -160,7 +151,7 @@ class regex_parser {
       count_char++;
       if (c == 0) {
         // malformed '[]'
-        return 0;
+        return regex_token_type::ERR;
       }
       if (quoted) {
         switch (c) {
@@ -200,12 +191,12 @@ class regex_parser {
       if (!quoted && c == '-') {
         if (cls.size() < 1) {
           // malformed '[]'
-          return 0;
+          return regex_token_type::ERR;
         }
         quoted = nextc(c);
         if ((!quoted && c == ']') || c == 0) {
           // malformed '[]'
-          return 0;
+          return regex_token_type::ERR;
         }
         cls[cls.size() - 1] = c;
       } else {
@@ -250,7 +241,7 @@ class regex_parser {
     return type;
   }
 
-  int lex(int dot_type)
+  regex_token_type lex(regex_token_type dot_type)
   {
     int quoted = nextc(yy);
     if (quoted) {
@@ -262,7 +253,7 @@ class regex_parser {
           yy = (yy << 3) | (c - '0');
           c  = *exprp++;
         }
-        return CHAR;
+        return regex_token_type::CHAR;
       } else {
         switch (yy) {
           case 't': yy = '\t'; break;
@@ -295,7 +286,7 @@ class regex_parser {
               id_ccls_w  = yyclass_id;
             } else
               yyclass_id = id_ccls_w;
-            return CCLASS;
+            return regex_token_type::CCLASS;
           }
           case 'W': {
             if (id_ccls_W < 0) {
@@ -306,7 +297,7 @@ class regex_parser {
               id_ccls_W  = yyclass_id;
             } else
               yyclass_id = id_ccls_W;
-            return NCCLASS;
+            return regex_token_type::NCCLASS;
           }
           case 's': {
             if (id_ccls_s < 0) {
@@ -314,7 +305,7 @@ class regex_parser {
               id_ccls_s  = yyclass_id;
             } else
               yyclass_id = id_ccls_s;
-            return CCLASS;
+            return regex_token_type::CCLASS;
           }
           case 'S': {
             if (id_ccls_s < 0) {
@@ -322,7 +313,7 @@ class regex_parser {
               id_ccls_s  = yyclass_id;
             } else
               yyclass_id = id_ccls_s;
-            return NCCLASS;
+            return regex_token_type::NCCLASS;
           }
           case 'd': {
             if (id_ccls_d < 0) {
@@ -330,7 +321,7 @@ class regex_parser {
               id_ccls_d  = yyclass_id;
             } else
               yyclass_id = id_ccls_d;
-            return CCLASS;
+            return regex_token_type::CCLASS;
           }
           case 'D': {
             if (id_ccls_D < 0) {
@@ -341,14 +332,14 @@ class regex_parser {
               id_ccls_D  = yyclass_id;
             } else
               yyclass_id = id_ccls_D;
-            return NCCLASS;
+            return regex_token_type::NCCLASS;
           }
-          case 'b': return BOW;
-          case 'B': return NBOW;
-          case 'A': return BOL;
-          case 'Z': return EOL;
+          case 'b': return regex_token_type::BOW;
+          case 'B': return regex_token_type::NBOW;
+          case 'A': return regex_token_type::BOL;
+          case 'Z': return regex_token_type::EOL;
           default: {
-            // let valid escapable chars fall through as literal CHAR
+            // let valid escapable chars fall through as literal regex_token_type::CHAR
             if (yy &&
                 (std::find(escapable_chars.begin(), escapable_chars.end(), static_cast<char>(yy)) !=
                  escapable_chars.end()))
@@ -358,34 +349,34 @@ class regex_parser {
                       std::to_string(exprp - pattern - 1));
           }
         }  // end-switch
-        return CHAR;
+        return regex_token_type::CHAR;
       }
     }
 
     // handle regex characters
     switch (yy) {
-      case 0: return END;
+      case 0: return regex_token_type::END;
       case '(':
         if (*exprp == '?' && *(exprp + 1) == ':')  // non-capturing group
         {
           exprp += 2;
-          return LBRA_NC;
+          return regex_token_type::LBRA_NC;
         }
-        return LBRA;
-      case ')': return RBRA;
-      case '^': return BOL;
-      case '$': return EOL;
+        return regex_token_type::LBRA;
+      case ')': return regex_token_type::RBRA;
+      case '^': return regex_token_type::BOL;
+      case '$': return regex_token_type::EOL;
       case '[': return bldcclass();
-      case '.': return dot_type;
+      case '.': return regex_token_type::ANY;
     }
 
     if (std::find(quantifiers.begin(), quantifiers.end(), static_cast<char>(yy)) ==
         quantifiers.end())
-      return CHAR;
+      return regex_token_type::CHAR;
 
     // The quantifiers require at least one "real" previous item.
     // We are throwing an error in these two if-checks for invalid quantifiers.
-    // Another option is to just return CHAR silently here which effectively
+    // Another option is to just return regex_token_type::CHAR silently here which effectively
     // treats the yy character as a literal instead as a quantifier.
     // This could lead to confusion where sometimes unescaped quantifier characters
     // are treated as regex expressions and sometimes they are not.
@@ -402,21 +393,21 @@ class regex_parser {
       case '*':
         if (*exprp == '?') {
           exprp++;
-          return STAR_LAZY;
+          return regex_token_type::STAR_LAZY;
         }
-        return STAR;
+        return regex_token_type::STAR;
       case '?':
         if (*exprp == '?') {
           exprp++;
-          return QUEST_LAZY;
+          return regex_token_type::QUEST_LAZY;
         }
-        return QUEST;
+        return regex_token_type::QUEST;
       case '+':
         if (*exprp == '?') {
           exprp++;
-          return PLUS_LAZY;
+          return regex_token_type::PLUS_LAZY;
         }
-        return PLUS;
+        return regex_token_type::PLUS;
       case '{':  // counted repetition
       {
         if (*exprp < '0' || *exprp > '9') break;
@@ -450,13 +441,13 @@ class regex_parser {
         exprp++;
         if (*exprp == '?') {
           exprp++;
-          return COUNTED_LAZY;
+          return regex_token_type::COUNTED_LAZY;
         }
-        return COUNTED;
+        return regex_token_type::COUNTED;
       }
-      case '|': return OR;
+      case '|': return regex_token_type::OR;
     }
-    return CHAR;
+    return regex_token_type::CHAR;
   }
 
  public:
@@ -464,7 +455,7 @@ class regex_parser {
    * @brief Single parsed pattern element.
    */
   struct Item {
-    int t;
+    regex_token_type t;
     union {
       char32_t yy;
       int yyclass_id;
@@ -478,21 +469,22 @@ class regex_parser {
 
   bool m_has_counted;
 
-  regex_parser(const char32_t* pattern, int dot_type, reprog& prog)
+  regex_parser(const char32_t* pattern, regex_token_type dot_type, reprog& prog)
     : m_prog(prog), pattern(pattern), exprp(pattern), lexdone(false), m_has_counted(false)
   {
-    int token = 0;
-    while ((token = lex(dot_type)) != END) {
+    regex_token_type token{};
+    while ((token = lex(dot_type)) != regex_token_type::END) {
       Item item;
       item.t = token;
-      if (token == CCLASS || token == NCCLASS)
+      if (token == regex_token_type::CCLASS || token == regex_token_type::NCCLASS) {
         item.d.yyclass_id = yyclass_id;
-      else if (token == COUNTED || token == COUNTED_LAZY) {
+      } else if (token == regex_token_type::COUNTED || token == regex_token_type::COUNTED_LAZY) {
         item.d.yycount.n = yy_min_count;
         item.d.yycount.m = yy_max_count;
         m_has_counted    = true;
-      } else
+      } else {
         item.d.yy = yy;
+      }
       m_items.push_back(item);
     }
   }
@@ -514,7 +506,7 @@ class regex_compiler {
   std::vector<Node> andstack;
 
   struct Ator {
-    int t;
+    regex_token_type t;
     int subid;
   };
 
@@ -529,7 +521,7 @@ class regex_compiler {
   {
     if (andstack.size() < 1) {
       // missing operand for op
-      int inst_id = m_prog.add_inst(NOP);
+      int inst_id = m_prog.add_inst(regex_token_type::NOP);
       pushand(inst_id, inst_id);
     }
     Node node = andstack[andstack.size() - 1];
@@ -537,7 +529,7 @@ class regex_compiler {
     return node;
   }
 
-  inline void pushator(int t)
+  inline void pushator(regex_token_type t)
   {
     Ator ator;
     ator.t     = t;
@@ -552,90 +544,90 @@ class regex_compiler {
     return ator;
   }
 
-  void evaluntil(int pri)
+  void evaluntil(regex_token_type pri)
   {
     Node op1;
     Node op2;
     int id_inst1 = -1;
     int id_inst2 = -1;
-    while (pri == RBRA || atorstack[atorstack.size() - 1].t >= pri) {
+    while (pri == regex_token_type::RBRA || atorstack[atorstack.size() - 1].t >= pri) {
       Ator ator = popator();
       switch (ator.t) {
         default:
           // unknown operator in evaluntil
           break;
-        case LBRA: /* must have been RBRA */
+        case regex_token_type::LBRA: /* must have been regex_token_type::RBRA */
           op1                                    = popand('(');
-          id_inst2                               = m_prog.add_inst(RBRA);
+          id_inst2                               = m_prog.add_inst(regex_token_type::RBRA);
           m_prog.inst_at(id_inst2).u1.subid      = ator.subid;  // subidstack[subidstack.size()-1];
           m_prog.inst_at(op1.id_last).u2.next_id = id_inst2;
-          id_inst1                               = m_prog.add_inst(LBRA);
+          id_inst1                               = m_prog.add_inst(regex_token_type::LBRA);
           m_prog.inst_at(id_inst1).u1.subid   = ator.subid;  // subidstack[subidstack.size() - 1];
           m_prog.inst_at(id_inst1).u2.next_id = op1.id_first;
           pushand(id_inst1, id_inst2);
           return;
-        case OR:
+        case regex_token_type::OR:
           op2                                    = popand('|');
           op1                                    = popand('|');
-          id_inst2                               = m_prog.add_inst(NOP);
+          id_inst2                               = m_prog.add_inst(regex_token_type::NOP);
           m_prog.inst_at(op2.id_last).u2.next_id = id_inst2;
           m_prog.inst_at(op1.id_last).u2.next_id = id_inst2;
-          id_inst1                               = m_prog.add_inst(OR);
+          id_inst1                               = m_prog.add_inst(regex_token_type::OR);
           m_prog.inst_at(id_inst1).u1.right_id   = op1.id_first;
           m_prog.inst_at(id_inst1).u2.left_id    = op2.id_first;
           pushand(id_inst1, id_inst2);
           break;
-        case CAT:
+        case regex_token_type::CAT:
           op2                                    = popand(0);
           op1                                    = popand(0);
           m_prog.inst_at(op1.id_last).u2.next_id = op2.id_first;
           pushand(op1.id_first, op2.id_last);
           break;
-        case STAR:
+        case regex_token_type::STAR:
           op2                                    = popand('*');
-          id_inst1                               = m_prog.add_inst(OR);
+          id_inst1                               = m_prog.add_inst(regex_token_type::OR);
           m_prog.inst_at(op2.id_last).u2.next_id = id_inst1;
           m_prog.inst_at(id_inst1).u1.right_id   = op2.id_first;
           pushand(id_inst1, id_inst1);
           break;
-        case STAR_LAZY:
+        case regex_token_type::STAR_LAZY:
           op2                                    = popand('*');
-          id_inst1                               = m_prog.add_inst(OR);
-          id_inst2                               = m_prog.add_inst(NOP);
+          id_inst1                               = m_prog.add_inst(regex_token_type::OR);
+          id_inst2                               = m_prog.add_inst(regex_token_type::NOP);
           m_prog.inst_at(op2.id_last).u2.next_id = id_inst1;
           m_prog.inst_at(id_inst1).u2.left_id    = op2.id_first;
           m_prog.inst_at(id_inst1).u1.right_id   = id_inst2;
           pushand(id_inst1, id_inst2);
           break;
-        case PLUS:
+        case regex_token_type::PLUS:
           op2                                    = popand('+');
-          id_inst1                               = m_prog.add_inst(OR);
+          id_inst1                               = m_prog.add_inst(regex_token_type::OR);
           m_prog.inst_at(op2.id_last).u2.next_id = id_inst1;
           m_prog.inst_at(id_inst1).u1.right_id   = op2.id_first;
           pushand(op2.id_first, id_inst1);
           break;
-        case PLUS_LAZY:
+        case regex_token_type::PLUS_LAZY:
           op2                                    = popand('+');
-          id_inst1                               = m_prog.add_inst(OR);
-          id_inst2                               = m_prog.add_inst(NOP);
+          id_inst1                               = m_prog.add_inst(regex_token_type::OR);
+          id_inst2                               = m_prog.add_inst(regex_token_type::NOP);
           m_prog.inst_at(op2.id_last).u2.next_id = id_inst1;
           m_prog.inst_at(id_inst1).u2.left_id    = op2.id_first;
           m_prog.inst_at(id_inst1).u1.right_id   = id_inst2;
           pushand(op2.id_first, id_inst2);
           break;
-        case QUEST:
+        case regex_token_type::QUEST:
           op2                                    = popand('?');
-          id_inst1                               = m_prog.add_inst(OR);
-          id_inst2                               = m_prog.add_inst(NOP);
+          id_inst1                               = m_prog.add_inst(regex_token_type::OR);
+          id_inst2                               = m_prog.add_inst(regex_token_type::NOP);
           m_prog.inst_at(id_inst1).u2.left_id    = id_inst2;
           m_prog.inst_at(id_inst1).u1.right_id   = op2.id_first;
           m_prog.inst_at(op2.id_last).u2.next_id = id_inst2;
           pushand(id_inst1, id_inst2);
           break;
-        case QUEST_LAZY:
+        case regex_token_type::QUEST_LAZY:
           op2                                    = popand('?');
-          id_inst1                               = m_prog.add_inst(OR);
-          id_inst2                               = m_prog.add_inst(NOP);
+          id_inst1                               = m_prog.add_inst(regex_token_type::OR);
+          id_inst2                               = m_prog.add_inst(regex_token_type::NOP);
           m_prog.inst_at(id_inst1).u2.left_id    = op2.id_first;
           m_prog.inst_at(id_inst1).u1.right_id   = id_inst2;
           m_prog.inst_at(op2.id_last).u2.next_id = id_inst2;
@@ -645,28 +637,31 @@ class regex_compiler {
     }
   }
 
-  void Operator(int t)
+  void Operator(regex_token_type t)
   {
-    if (t == RBRA && --nbra < 0)
+    if (t == regex_token_type::RBRA && --nbra < 0)
       // unmatched right paren
       return;
-    if (t == LBRA) {
+    if (t == regex_token_type::LBRA) {
       nbra++;
-      if (lastwasand) Operator(CAT);
+      if (lastwasand) Operator(regex_token_type::CAT);
     } else
       evaluntil(t);
-    if (t != RBRA) pushator(t);
-    lastwasand = (t == STAR || t == QUEST || t == PLUS || t == STAR_LAZY || t == QUEST_LAZY ||
-                  t == PLUS_LAZY || t == RBRA);
+    if (t != regex_token_type::RBRA) pushator(t);
+    lastwasand =
+      (t == regex_token_type::STAR || t == regex_token_type::QUEST || t == regex_token_type::PLUS ||
+       t == regex_token_type::STAR_LAZY || t == regex_token_type::QUEST_LAZY ||
+       t == regex_token_type::PLUS_LAZY || t == regex_token_type::RBRA);
   }
 
-  void Operand(int t)
+  void Operand(regex_token_type t)
   {
-    if (lastwasand) Operator(CAT); /* catenate is implicit */
+    if (lastwasand) Operator(regex_token_type::CAT); /* catenate is implicit */
     int inst_id = m_prog.add_inst(t);
-    if (t == CCLASS || t == NCCLASS)
+    if (t == regex_token_type::CCLASS || t == regex_token_type::NCCLASS)
       m_prog.inst_at(inst_id).u1.cls_id = yyclass_id;
-    else if (t == CHAR || t == BOL || t == EOL)
+    else if (t == regex_token_type::CHAR || t == regex_token_type::BOL ||
+             t == regex_token_type::EOL)
       m_prog.inst_at(inst_id).u1.c = yy;
     pushand(inst_id, inst_id);
     lastwasand = true;
@@ -683,15 +678,15 @@ class regex_compiler {
 
     out.clear();
     for (int i = 0; i < in.size(); i++) {
-      if (in[i].t != COUNTED && in[i].t != COUNTED_LAZY) {
+      if (in[i].t != regex_token_type::COUNTED && in[i].t != regex_token_type::COUNTED_LAZY) {
         out.push_back(in[i]);
-        if (in[i].t == LBRA || in[i].t == LBRA_NC) {
+        if (in[i].t == regex_token_type::LBRA || in[i].t == regex_token_type::LBRA_NC) {
           lbra_stack.push_back(i);
           rep_start = -1;
-        } else if (in[i].t == RBRA) {
+        } else if (in[i].t == regex_token_type::RBRA) {
           rep_start = lbra_stack[lbra_stack.size() - 1];
           lbra_stack.pop_back();
-        } else if ((in[i].t & 0300) != OPERATOR_MASK) {
+        } else if ((static_cast<int32_t>(in[i].t) & 0300) != OPERATOR_MASK) {
           rep_start = i;
         }
       } else {
@@ -712,21 +707,21 @@ class regex_compiler {
         if (item.d.yycount.m >= 0) {
           for (int j = item.d.yycount.n; j < item.d.yycount.m; j++) {
             regex_parser::Item o_item;
-            o_item.t    = LBRA_NC;
+            o_item.t    = regex_token_type::LBRA_NC;
             o_item.d.yy = 0;
             out.push_back(o_item);
             for (int k = rep_start; k < i; k++) out.push_back(in[k]);
           }
           for (int j = item.d.yycount.n; j < item.d.yycount.m; j++) {
             regex_parser::Item o_item;
-            o_item.t    = RBRA;
+            o_item.t    = regex_token_type::RBRA;
             o_item.d.yy = 0;
             out.push_back(o_item);
-            if (item.t == COUNTED) {
-              o_item.t = QUEST;
+            if (item.t == regex_token_type::COUNTED) {
+              o_item.t = regex_token_type::QUEST;
               out.push_back(o_item);
             } else {
-              o_item.t = QUEST_LAZY;
+              o_item.t = regex_token_type::QUEST_LAZY;
               out.push_back(o_item);
             }
           }
@@ -737,22 +732,22 @@ class regex_compiler {
 
           if (item.d.yycount.n > 0)  // put '+' after last repetition
           {
-            if (item.t == COUNTED) {
-              o_item.t = PLUS;
+            if (item.t == regex_token_type::COUNTED) {
+              o_item.t = regex_token_type::PLUS;
               out.push_back(o_item);
             } else {
-              o_item.t = PLUS_LAZY;
+              o_item.t = regex_token_type::PLUS_LAZY;
               out.push_back(o_item);
             }
           } else  // copy it once then put '*'
           {
             for (int k = rep_start; k < i; k++) out.push_back(in[k]);
 
-            if (item.t == COUNTED) {
-              o_item.t = STAR;
+            if (item.t == regex_token_type::COUNTED) {
+              o_item.t = regex_token_type::STAR;
               out.push_back(o_item);
             } else {
-              o_item.t = STAR_LAZY;
+              o_item.t = regex_token_type::STAR_LAZY;
               out.push_back(o_item);
             }
           }
@@ -762,7 +757,7 @@ class regex_compiler {
   }
 
  public:
-  regex_compiler(const char32_t* pattern, int dot_type, reprog& prog)
+  regex_compiler(const char32_t* pattern, regex_token_type dot_type, reprog& prog)
     : m_prog(prog), cursubid(0), pushsubid(0), lastwasand(false), nbra(0), yyclass_id(0), yy(0)
   {
     // Parse
@@ -778,35 +773,35 @@ class regex_compiler {
     }
 
     /* Start with a low priority operator to prime parser */
-    pushator(START - 1);
+    pushator(regex_token_type::CHAR);
 
     for (int i = 0; i < static_cast<int>(items.size()); i++) {
       regex_parser::Item item = items[i];
-      int token               = item.t;
-      if (token == CCLASS || token == NCCLASS)
+      regex_token_type token  = item.t;
+      if (token == regex_token_type::CCLASS || token == regex_token_type::NCCLASS)
         yyclass_id = item.d.yyclass_id;
       else
         yy = item.d.yy;
 
-      if (token == LBRA) {
+      if (token == regex_token_type::LBRA) {
         ++cursubid;
         pushsubid = cursubid;
-      } else if (token == LBRA_NC) {
+      } else if (token == regex_token_type::LBRA_NC) {
         pushsubid = 0;
-        token     = LBRA;
+        token     = regex_token_type::LBRA;
       }
 
-      if ((token & 0300) == OPERATOR_MASK)
+      if ((static_cast<int32_t>(token) & 0300) == OPERATOR_MASK)
         Operator(token);
       else
         Operand(token);
     }
 
     /* Close with a low priority operator */
-    evaluntil(START);
+    evaluntil(regex_token_type::START);
     /* Force END */
-    Operand(END);
-    evaluntil(START);
+    Operand(regex_token_type::END);
+    evaluntil(regex_token_type::START);
     if (nbra)
       ;  // "unmatched left paren";
     /* points to first and only operand */
@@ -821,7 +816,7 @@ class regex_compiler {
 reprog reprog::create_from(const char32_t* pattern)
 {
   reprog rtn;
-  regex_compiler compiler(pattern, ANY, rtn);  // future feature: ANYNL
+  regex_compiler compiler(pattern, regex_token_type::ANY, rtn);  // future feature: ANYNL
   // rtn->print();
   return rtn;
 }
@@ -829,24 +824,26 @@ reprog reprog::create_from(const char32_t* pattern)
 //
 void reprog::optimize1()
 {
-  // Treat non-capturing LBRAs/RBRAs as NOOP
+  // Treat non-capturing regex_token_type::LBRAs/RBRAs as NOOP
   for (int i = 0; i < static_cast<int>(_insts.size()); i++) {
-    if (_insts[i].type == LBRA || _insts[i].type == RBRA) {
-      if (_insts[i].u1.subid < 1) { _insts[i].type = NOP; }
+    if (_insts[i].type == regex_token_type::LBRA || _insts[i].type == regex_token_type::RBRA) {
+      if (_insts[i].u1.subid < 1) { _insts[i].type = regex_token_type::NOP; }
     }
   }
 
   // get rid of NOP chains
   for (int i = 0; i < insts_count(); i++) {
-    if (_insts[i].type != NOP) {
+    if (_insts[i].type != regex_token_type::NOP) {
       {
         int target_id = _insts[i].u2.next_id;
-        while (_insts[target_id].type == NOP) target_id = _insts[target_id].u2.next_id;
+        while (_insts[target_id].type == regex_token_type::NOP)
+          target_id = _insts[target_id].u2.next_id;
         _insts[i].u2.next_id = target_id;
       }
-      if (_insts[i].type == OR) {
+      if (_insts[i].type == regex_token_type::OR) {
         int target_id = _insts[i].u1.right_id;
-        while (_insts[target_id].type == NOP) target_id = _insts[target_id].u2.next_id;
+        while (_insts[target_id].type == regex_token_type::NOP)
+          target_id = _insts[target_id].u2.next_id;
         _insts[i].u1.right_id = target_id;
       }
     }
@@ -854,7 +851,8 @@ void reprog::optimize1()
   // skip NOPs from the beginning
   {
     int target_id = _startinst_id;
-    while (_insts[target_id].type == NOP) target_id = _insts[target_id].u2.next_id;
+    while (_insts[target_id].type == regex_token_type::NOP)
+      target_id = _insts[target_id].u2.next_id;
     _startinst_id = target_id;
   }
   // actually remove the no-ops
@@ -862,7 +860,7 @@ void reprog::optimize1()
   int j = 0;  // compact the ops (non no-ops)
   for (int i = 0; i < insts_count(); i++) {
     id_map[i] = j;
-    if (_insts[i].type != NOP) {
+    if (_insts[i].type != regex_token_type::NOP) {
       _insts[j] = _insts[i];
       j++;
     }
@@ -874,7 +872,7 @@ void reprog::optimize1()
       int target_id        = _insts[i].u2.next_id;
       _insts[i].u2.next_id = id_map[target_id];
     }
-    if (_insts[i].type == OR) {
+    if (_insts[i].type == regex_token_type::OR) {
       int target_id         = _insts[i].u1.right_id;
       _insts[i].u1.right_id = id_map[target_id];
     }
@@ -893,7 +891,7 @@ void reprog::optimize2()
     int id = stack.back();
     stack.pop_back();
     const reinst& inst = _insts[id];
-    if (inst.type == OR) {
+    if (inst.type == regex_token_type::OR) {
       if (inst.u2.left_id != id)  // prevents infinite while-loop here
         stack.push_back(inst.u2.left_id);
       if (inst.u1.right_id != id)  // prevents infinite while-loop here
@@ -912,37 +910,70 @@ void reprog::print()
     const reinst& inst = _insts[i];
     printf("%d :", i);
     switch (inst.type) {
-      default: printf("Unknown instruction: %d, nextid= %d", inst.type, inst.u2.next_id); break;
-      case CHAR:
-        if (inst.u1.c <= 32 || inst.u1.c >= 127)
-          printf(
-            "CHAR, c = '0x%02x', nextid= %d", static_cast<unsigned>(inst.u1.c), inst.u2.next_id);
-        else
-          printf("CHAR, c = '%c', nextid= %d", inst.u1.c, inst.u2.next_id);
+      default:
+        printf("Unknown instruction: %d, nextid= %d",
+               static_cast<int32_t>(inst.type),
+               static_cast<int32_t>(inst.u2.next_id));
         break;
-      case RBRA: printf("RBRA, subid= %d, nextid= %d", inst.u1.subid, inst.u2.next_id); break;
-      case LBRA: printf("LBRA, subid= %d, nextid= %d", inst.u1.subid, inst.u2.next_id); break;
-      case OR:
+      case regex_token_type::CHAR:
+        if (inst.u1.c <= 32 || inst.u1.c >= 127)
+          printf("CHAR, c = '0x%02x', nextid= %d",
+                 static_cast<unsigned>(inst.u1.c),
+                 static_cast<int32_t>(inst.u2.next_id));
+        else
+          printf("CHAR, c = '%c', nextid= %d", inst.u1.c, static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::RBRA:
+        printf("RBRA, subid= %d, nextid= %d", inst.u1.subid, static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::LBRA:
+        printf("LBRA, subid= %d, nextid= %d", inst.u1.subid, static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::OR:
         printf("OR, rightid=%d, leftid=%d, nextid=%d",
                inst.u1.right_id,
                inst.u2.left_id,
-               inst.u2.next_id);
+               static_cast<int32_t>(inst.u2.next_id));
         break;
-      case STAR: printf("STAR, nextid= %d", inst.u2.next_id); break;
-      case PLUS: printf("PLUS, nextid= %d", inst.u2.next_id); break;
-      case QUEST: printf("QUEST, nextid= %d", inst.u2.next_id); break;
-      case ANY: printf("ANY, nextid= %d", inst.u2.next_id); break;
-      case ANYNL: printf("ANYNL, nextid= %d", inst.u2.next_id); break;
-      case NOP: printf("NOP, nextid= %d", inst.u2.next_id); break;
-      case BOL: printf("BOL, c = '%c', nextid= %d", inst.u1.c, inst.u2.next_id); break;
-      case EOL: printf("EOL, c = '%c', nextid= %d", inst.u1.c, inst.u2.next_id); break;
-      case CCLASS: printf("CCLASS, cls_id=%d , nextid= %d", inst.u1.cls_id, inst.u2.next_id); break;
-      case NCCLASS:
-        printf("NCCLASS, cls_id=%d , nextid= %d", inst.u1.cls_id, inst.u2.next_id);
+      case regex_token_type::STAR:
+        printf("STAR, nextid= %d", static_cast<int32_t>(inst.u2.next_id));
         break;
-      case BOW: printf("BOW, nextid= %d", inst.u2.next_id); break;
-      case NBOW: printf("NBOW, nextid= %d", inst.u2.next_id); break;
-      case END: printf("END"); break;
+      case regex_token_type::PLUS:
+        printf("PLUS, nextid= %d", static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::QUEST:
+        printf("QUEST, nextid= %d", static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::ANY:
+        printf("ANY, nextid= %d", static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::ANYNL:
+        printf("ANYNL, nextid= %d", static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::NOP:
+        printf("NOP, nextid= %d", static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::BOL:
+        printf("BOL, c = '%c', nextid= %d", inst.u1.c, static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::EOL:
+        printf("EOL, c = '%c', nextid= %d", inst.u1.c, static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::CCLASS:
+        printf(
+          "CCLASS, cls_id=%d , nextid= %d", inst.u1.cls_id, static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::NCCLASS:
+        printf(
+          "NCCLASS, cls_id=%d , nextid= %d", inst.u1.cls_id, static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::BOW:
+        printf("BOW, nextid= %d", static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::NBOW:
+        printf("NBOW, nextid= %d", static_cast<int32_t>(inst.u2.next_id));
+        break;
+      case regex_token_type::END: printf("END"); break;
     }
     printf("\n");
   }
