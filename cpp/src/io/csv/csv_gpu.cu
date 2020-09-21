@@ -16,13 +16,8 @@
 
 #include "csv_common.h"
 #include "csv_gpu.h"
-#include "cudf/utilities/span.hpp"
 #include "datetime.cuh"
 
-#include <io/utilities/block_utils.cuh>
-#include <io/utilities/parsing_utils.cuh>
-
-#include <cstddef>
 #include <io/utilities/block_utils.cuh>
 #include <io/utilities/parsing_utils.cuh>
 
@@ -33,6 +28,7 @@
 #include <cudf/strings/string_view.cuh>
 #include <cudf/utilities/bit.hpp>
 #include <cudf/utilities/error.hpp>
+#include <cudf/utilities/span.hpp>
 #include <cudf/utilities/traits.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
@@ -41,6 +37,7 @@
 #include <thrust/detail/copy.h>
 #include <thrust/transform.h>
 
+#include <cstddef>
 #include <type_traits>
 
 using namespace ::cudf::io;
