@@ -64,8 +64,9 @@ __device__ __inline__ bool is_whitespace(char c) { return c == '\t' || c == ' ';
  * @brief Scans a character stream within a range, and adjusts the start and end
  * indices of the range to ignore whitespace and quotation characters.
  *
- * @param[in] begin Beginning of the character string
- * @param[in] end End of the character string
+ * @param data The character stream to scan
+ * @param start The start index to adjust
+ * @param end The end index to adjust
  * @param quotechar The character used to denote quotes
  *
  * @return Adjusted or unchanged start_idx and end_idx
@@ -357,12 +358,12 @@ __inline__ __device__ cudf::timestamp_ns decode_value(char const *begin,
 }
 
 #ifndef DURATION_DECODE_VALUE
-#define DURATION_DECODE_VALUE(Type)                               \
-  template <>                                                     \
-  __inline__ __device__ Type decode_value(                        \
-    const char *begin, const char *end, ParseOptions const &opts) \
-  {                                                               \
-    return Type{};                                                \
+#define DURATION_DECODE_VALUE(Type)                                 \
+  template <>                                                       \
+  __inline__ __device__ Type decode_value(                          \
+    const char *begin, const char *end, ParseOptions const &opts)   \
+  {                                                                 \
+    return Type{parseTimeDeltaFormat<Type>(begin, 0, end - begin)}; \
   }
 #endif
 DURATION_DECODE_VALUE(duration_D)
@@ -451,22 +452,23 @@ struct decode_op {
                                                       ParseOptions const &opts,
                                                       column_parse::flags flags)
   {
-    auto &value{static_cast<T *>(out_buffer)[row]};
-
-    // Check for user-specified true/false values first, where the output is
-    // replaced with 1/0 respectively
-    const size_t field_len = end - begin + 1;
-    if (serializedTrieContains(opts.trueValuesTrie, begin, field_len)) {
-      value = 1;
-    } else if (serializedTrieContains(opts.falseValuesTrie, begin, field_len)) {
-      value = 0;
-    } else {
-      if (flags & column_parse::as_hexadecimal) {
-        value = decode_value<T, 16>(begin, end, opts);
+    static_cast<T *>(out_buffer)[row] = [&]() {
+      // Check for user-specified true/false values first, where the output is
+      // replaced with 1/0 respectively
+      const size_t field_len = end - begin + 1;
+      if (serializedTrieContains(opts.trueValuesTrie, begin, field_len)) {
+        return static_cast<T>(1);
+      } else if (serializedTrieContains(opts.falseValuesTrie, begin, field_len)) {
+        return static_cast<T>(0);
       } else {
-        value = decode_value<T>(begin, end, opts);
+        if (flags & column_parse::as_hexadecimal) {
+          return decode_value<T, 16>(begin, end, opts);
+        } else {
+          return decode_value<T>(begin, end, opts);
+        }
       }
-    }
+    }();
+
     return true;
   }
 
