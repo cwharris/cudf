@@ -31,6 +31,7 @@
 #include <cudf/strings/replace.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/utilities/error.hpp>
+#include <cudf/utilities/span.hpp>
 
 #include <algorithm>
 #include <iostream>
@@ -677,15 +678,12 @@ void reader::impl::decode_data(thrust::host_vector<column_parse::column_builder>
 {
   rmm::device_vector<column_parse::column_builder> d_builders = builders;
 
-  cudf::io::csv::gpu::decode_row_column_data(data_.data().get(),
-                                             opts,
-                                             // todo: replace with device_span
-                                             num_records_,
-                                             row_offsets_.data().get(),
-                                             // todo: replace with device_span
-                                             num_actual_cols_,
-                                             d_builders.data().get(),
-                                             stream);
+  cudf::io::csv::gpu::decode_row_column_data(
+    opts,
+    cudf::detail::device_span<char const>(data_),
+    cudf::detail::device_span<unsigned long const>(row_offsets_),
+    cudf::detail::device_span<column_parse::column_builder>(d_builders),
+    stream);
   CUDA_TRY(cudaStreamSynchronize(stream));
 }
 

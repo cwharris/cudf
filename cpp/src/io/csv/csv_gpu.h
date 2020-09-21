@@ -20,6 +20,7 @@
 #include <io/utilities/parsing_utils.cuh>
 
 #include <cudf/types.hpp>
+#include "cudf/utilities/span.hpp"
 
 #include <rmm/thrust_rmm_allocator.h>
 
@@ -217,20 +218,15 @@ thrust::host_vector<column_parse::stats> detect_column_types(const char *data,
 /**
  * @brief Launches kernel for decoding row-column data
  *
- * @param[in] data The row-column data
  * @param[in] options Options that control individual field data conversion
- * @param[in] row_count Number of rows
+ * @param[in] csv_text csv text
  * @param[in] row_offsets List of row data start positions
- * @param[in] column_count Number of columns
- * @param[out] columns column flags, data, null_mask, etc.
- * @param[in] stream CUDA stream to use, default 0
+ * @param[out] builders column flags, data, null_mask, etc.
  **/
-void decode_row_column_data(const char *data,
-                            const ParseOptions &options,
-                            size_t row_count,
-                            const uint64_t *row_offsets,
-                            size_t column_count,
-                            column_parse::column_builder *columns,
+void decode_row_column_data(const ParseOptions &options,
+                            detail::device_span<char const> const &csv_text,
+                            detail::device_span<uint64_t const> const &row_offsets,
+                            detail::device_span<column_parse::column_builder> const &builders,
                             cudaStream_t stream = 0);
 
 }  // namespace gpu
