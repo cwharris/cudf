@@ -48,8 +48,8 @@ __global__ void inclusive_scan_copy_if_kernel(device_span<T> input,
 
   BlockScanValue(temp_storage.value).InclusiveScan(thread_data, thread_data, reduce_op, get);
 
-  BlockScanValue(temp_storage.value)  //
-    .InclusiveScan(thread_data, thread_data, reduce_op);
+  // BlockScanValue(temp_storage.value)  //
+  //   .InclusiveScan(thread_data, thread_data, reduce_op);
 
   uint32_t count_thread = 0;
 
