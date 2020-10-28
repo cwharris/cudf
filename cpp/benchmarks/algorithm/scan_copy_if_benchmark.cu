@@ -35,14 +35,14 @@ static void BM_scan_copy_if(benchmark::State& state)
 {
   using T             = uint64_t;
   uint32_t input_size = state.range(0);
-  auto op             = simple_op<T>{};
+  // auto op             = simple_op<T>{};
 
   auto input   = thrust::make_constant_iterator<T>(1);
   auto d_input = thrust::device_vector<T>(input, input + input_size);
 
   for (auto _ : state) {
     cuda_event_timer raii(state, true);
-    auto d_result = scan_copy_if(d_input.begin(), d_input.end(), op, op);
+    // auto d_result = scan_copy_if(d_input.begin(), d_input.end(), op, op);
   }
 
   state.SetBytesProcessed(state.iterations() * input_size * sizeof(T));
