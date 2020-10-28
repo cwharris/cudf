@@ -2,7 +2,7 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/cudf_gtest.hpp>
 
-#include <cudf/algorithm/scan_copy_if.cuh>
+#include <cudf/algorithm/scan_artifacts.cuh>
 #include <cudf/utilities/span.hpp>
 
 #include <rmm/thrust_rmm_allocator.h>
@@ -13,9 +13,9 @@ class InclusiveCopyIfTest : public cudf::test::BaseFixture {
 };
 
 struct simple_seed_op {
-  inline __device__ uint32_t operator()(uint32_t idx, uint32_t value)
+  inline __device__ uint32_t operator()(uint32_t idx, uint32_t input)
   {
-    printf("bid(%i) tid(%i): seed %u %u\n", blockIdx.x, threadIdx.x, idx, value);
+    printf("bid(%i) tid(%i): seed %u %u\n", blockIdx.x, threadIdx.x, idx, input);
     return 0;
   }
 };
@@ -29,7 +29,10 @@ struct simple_scan_op {
   {
     printf("bid(%i) tid(%i): scan %u %u\n", blockIdx.x, threadIdx.x, lhs, rhs);
     auto result = lhs + rhs;
-    if (result % 2 == 0) { output(result); }
+    if (result % 3 == 0) {  // even? output it twice!
+      output(result);
+      output(result);
+    }
     return result;
   }
 };
@@ -51,24 +54,24 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   auto intersect_op = simple_intersection_op{};
 
   // const uint32_t size = 1 << 24;
-  const uint32_t input_size = 1 << 4;
+  const uint32_t input_size = 1 << 15;
 
   thrust::device_vector<uint32_t> d_input(input, input + input_size);
 
-  auto d_result = scan_copy_if<uint32_t>(d_input.begin(),  //
-                                         d_input.end(),
-                                         seed_op,
-                                         scan_op,
-                                         intersect_op);
+  auto d_result = scan_artifacts<uint32_t>(d_input.begin(),  //
+                                           d_input.end(),
+                                           seed_op,
+                                           scan_op,
+                                           intersect_op);
 
-  ASSERT_EQ(static_cast<uint32_t>(input_size / 2), d_result.size());
+  ASSERT_EQ(static_cast<uint32_t>(input_size / 3) * 2, d_result.size());
 
   thrust::host_vector<uint32_t> h_result(d_result.size());
   cudaMemcpy(
     h_result.data(), d_result.data(), sizeof(uint32_t) * d_result.size(), cudaMemcpyDeviceToHost);
 
   for (uint32_t i = 0; i < h_result.size(); i++) {  //
-    ASSERT_EQ(static_cast<uint32_t>(i * 2 + 2), h_result[i]);
+    ASSERT_EQ(static_cast<uint32_t>((i / 2) * 3 + 3), h_result[i]);
   }
 }
 
@@ -106,7 +109,7 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
 
 //   auto op = successive_capitalization_op{};
 
-//   auto d_result = scan_copy_if(  //
+//   auto d_result = scan_artifacts(  //
 //     input.begin(),
 //     input.end(),
 //     op,
@@ -195,7 +198,7 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
 
 //   auto op = successive_capitalization_op{};
 
-//   auto d_result = scan_copy_if(  //
+//   auto d_result = scan_artifacts(  //
 //     input.begin(),
 //     input.end(),
 //     op,

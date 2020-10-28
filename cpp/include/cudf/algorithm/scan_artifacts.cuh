@@ -30,20 +30,7 @@ struct output_callback {
   bool output_enabled = false;
   inline __device__ void operator()(typename Policy::Output value)
   {
-    if (output_enabled) {
-      output[output_count] = value;
-      printf("bid(%i) tid(%i): output[%u] = %u\n",  //
-             blockIdx.x,
-             threadIdx.x,
-             output_count,
-             value);
-    } else {
-      printf("bid(%i) tid(%i): output[%u] = %u bypassed\n",  //
-             blockIdx.x,
-             threadIdx.x,
-             output_count,
-             value);
-    }
+    if (output_enabled) { output[output_count] = value; }
     output_count++;
   }
 };
@@ -113,8 +100,6 @@ struct agent {
     __syncthreads();
 
     // Scan Inputs per Thread
-    if (threadIdx.x == 0) { printf("bid(%i) tid(%i): ===== 0 ===== \n", blockIdx.x, threadIdx.x); }
-
     auto thread_seed  = seed_op(tile_offset + thread_offset, items[0]);
     auto thread_state = thread_seed;
     auto callback     = output_callback<Policy>{d_output};
@@ -126,8 +111,6 @@ struct agent {
     };
 
     // Intersect Block States and Get Exclusive Thread State
-    if (threadIdx.x == 0) { printf("bid(%i) tid(%i): ===== 1 ===== \n", blockIdx.x, threadIdx.x); }
-
     if (tile_idx == 0) {
       typename Policy::Input block_state;
 
@@ -163,8 +146,6 @@ struct agent {
     __syncthreads();
 
     // Count Thread Outputs
-    if (threadIdx.x == 0) { printf("bid(%i) tid(%i): ===== 2 ===== \n", blockIdx.x, threadIdx.x); }
-
     callback.output_count = 0;
 
     thread_seed = thread_state;
@@ -176,8 +157,6 @@ struct agent {
     }
 
     // count block outputs and initialize output offsets
-    if (threadIdx.x == 0) { printf("bid(%i) tid(%i): ===== 3 ===== \n", blockIdx.x, threadIdx.x); }
-
     uint32_t tile_output_count;
 
     if (tile_idx == 0) {
@@ -210,8 +189,6 @@ struct agent {
 
     // Output
 
-    if (threadIdx.x == 0) { printf("bid(%i) tid(%i): ===== 4 ===== \n", blockIdx.x, threadIdx.x); }
-
     thread_state = thread_seed;
 
     if (do_output) {
@@ -223,7 +200,7 @@ struct agent {
       }
     }
 
-    *d_output_count = tile_output_count;
+    return tile_output_count;
   }
 };
 
@@ -280,7 +257,7 @@ template <typename InputIterator_,
 struct policy {
   static constexpr uint32_t THREADS_PER_INIT_BLOCK = 128;
   static constexpr uint32_t THREADS_PER_BLOCK      = 32;
-  static constexpr uint32_t ITEMS_PER_THREAD       = 4;
+  static constexpr uint32_t ITEMS_PER_THREAD       = 32;
   static constexpr uint32_t ITEMS_PER_TILE         = ITEMS_PER_THREAD * THREADS_PER_BLOCK;
 
   using InputIterator       = InputIterator_;
@@ -334,7 +311,7 @@ template <typename InputIterator,
           typename SeedOperator,
           typename ScanOperator,
           typename IntersectionOperator>
-void scan_copy_if(  //
+void scan_artifacts(  //
   void* d_temp_storage,
   size_t& temp_storage_bytes,
   InputIterator d_in,
@@ -425,7 +402,7 @@ template <typename Result,
           typename ScanOperator,
           typename IntersectionOperator>
 rmm::device_uvector<Result>  //
-scan_copy_if(                //
+scan_artifacts(              //
   InputIterator d_in_begin,
   InputIterator d_in_end,
   SeedOperator seed_op,
@@ -448,52 +425,52 @@ scan_copy_if(                //
 
   // query required temp storage (does not launch kernel)
 
-  scan_copy_if(static_cast<void*>(nullptr),
-               temp_storage_bytes,
-               d_in_begin,
-               d_num_selections.data(),
-               static_cast<OutputIterator>(nullptr),
-               static_cast<uint32_t>(d_in_end - d_in_begin),
-               seed_op,
-               scan_op,
-               intersection_op,
-               false,  // do_initialize
-               false,  // do_output
-               stream);
+  scan_artifacts(static_cast<void*>(nullptr),
+                 temp_storage_bytes,
+                 d_in_begin,
+                 d_num_selections.data(),
+                 static_cast<OutputIterator>(nullptr),
+                 static_cast<uint32_t>(d_in_end - d_in_begin),
+                 seed_op,
+                 scan_op,
+                 intersection_op,
+                 false,  // do_initialize
+                 false,  // do_output
+                 stream);
 
   auto d_temp_storage = rmm::device_buffer(temp_storage_bytes, stream);
 
   // phase 1 - determine number of results
 
-  scan_copy_if(d_temp_storage.data(),
-               temp_storage_bytes,
-               d_in_begin,
-               d_num_selections.data(),
-               static_cast<OutputIterator>(nullptr),
-               static_cast<uint32_t>(d_in_end - d_in_begin),
-               seed_op,
-               scan_op,
-               intersection_op,
-               true,   // do_initialize
-               false,  // do_output
-               stream);
+  scan_artifacts(d_temp_storage.data(),
+                 temp_storage_bytes,
+                 d_in_begin,
+                 d_num_selections.data(),
+                 static_cast<OutputIterator>(nullptr),
+                 static_cast<uint32_t>(d_in_end - d_in_begin),
+                 seed_op,
+                 scan_op,
+                 intersection_op,
+                 true,   // do_initialize
+                 false,  // do_output
+                 stream);
 
   auto d_output = rmm::device_uvector<Result>(d_num_selections.value(stream), stream, mr);
 
   // phase 2 - gather results
 
-  scan_copy_if(d_temp_storage.data(),
-               temp_storage_bytes,
-               d_in_begin,
-               d_num_selections.data(),
-               d_output.data(),
-               static_cast<uint32_t>(d_in_end - d_in_begin),
-               seed_op,
-               scan_op,
-               intersection_op,
-               false,  // do_initialize
-               true,   // do_output
-               stream);
+  scan_artifacts(d_temp_storage.data(),
+                 temp_storage_bytes,
+                 d_in_begin,
+                 d_num_selections.data(),
+                 d_output.data(),
+                 static_cast<uint32_t>(d_in_end - d_in_begin),
+                 seed_op,
+                 scan_op,
+                 intersection_op,
+                 false,  // do_initialize
+                 true,   // do_output
+                 stream);
 
   cudaStreamSynchronize(stream);
 
