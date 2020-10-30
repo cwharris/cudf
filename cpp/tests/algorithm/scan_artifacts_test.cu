@@ -115,7 +115,7 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   auto step_op = simple_state_step_op{};
   auto join_op = simple_state_join_op{};
 
-  const uint32_t input_size             = 1 << 3;
+  const uint32_t input_size             = 1 << 15;
   const uint32_t expected_output_size_a = input_size / 3;
   // const uint32_t expected_output_size_b = input_size / 2;
 
@@ -192,8 +192,8 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   //            cudaMemcpyDeviceToHost);
 
   for (uint32_t i = 0; i < h_output_a.size(); i++) {
-    // EXPECT_EQ(static_cast<uint32_t>(i * 3), h_output_a[i]);
-    EXPECT_EQ(static_cast<uint32_t>(-1), h_output_a[i]);
+    EXPECT_EQ(static_cast<uint32_t>(i * 3) + 3, h_output_a[i]);
+    // EXPECT_EQ(static_cast<uint32_t>(-1), h_output_a[i]);
   }
 
   // for (uint32_t i = 0; i < h_output_b.size(); i++) {

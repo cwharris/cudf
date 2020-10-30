@@ -222,14 +222,12 @@ struct agent {
           cub::Sum(),
           prefix_op);
 
-      block_output  = prefix_op.GetInclusivePrefix();
-      thread_output = prefix_op.GetExclusivePrefix();
+      block_output = prefix_op.GetInclusivePrefix();
     }
 
     __syncthreads();
 
-    // thread_output = *d_output;  // reset state gathering.
-    // thread_state  = thread_seed;
+    thread_state = thread_seed;
 
     if (threadIdx.x == 0) {  //
       printf("bid(%i) tid(%i): ===== 5 =====\n", blockIdx.x, threadIdx.x);
