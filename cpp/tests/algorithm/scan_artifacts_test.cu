@@ -1,9 +1,14 @@
 #include <algorithm>
+
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/cudf_gtest.hpp>
 
+#include <cudf/algorithm/csv_gpu_row_count.cuh>
 #include <cudf/algorithm/scan_artifacts.cuh>
 #include <cudf/utilities/span.hpp>
+#include "gtest/gtest.h"
+#include "rmm/device_scalar.hpp"
+#include "rmm/device_uvector.hpp"
 
 #include <rmm/thrust_rmm_allocator.h>
 
@@ -12,35 +17,59 @@
 class InclusiveCopyIfTest : public cudf::test::BaseFixture {
 };
 
-struct simple_seed_op {
-  inline __device__ uint32_t operator()(uint32_t idx, uint32_t input)
+struct simple_outputs {
+  fsm_output<uint32_t> a;
+  fsm_output<double> b;
+
+  inline constexpr simple_outputs operator+(simple_outputs other) const
   {
-    printf("bid(%i) tid(%i): seed %u %u\n", blockIdx.x, threadIdx.x, idx, input);
-    return 0;
+    return {
+      a + other.a,
+      b + other.b,
+    };
   }
 };
 
-struct simple_scan_op {
-  template <typename OutputCallback>
-  inline __device__ uint32_t operator()(  //
-    uint32_t lhs,
-    uint32_t rhs,
-    OutputCallback& output)  // TODO: make sure this can be passed by value without changing meaning
+struct simple_state {
+  uint32_t sum;
+  inline constexpr simple_state operator+(simple_state other) const
   {
-    printf("bid(%i) tid(%i): scan %u %u\n", blockIdx.x, threadIdx.x, lhs, rhs);
-    auto result = lhs + rhs;
-    if (result % 3 == 0) {  // even? output it twice!
-      output(result);
-      output(result);
+    return {
+      sum + other.sum,
+    };
+  }
+};
+
+struct simple_state_seed_op {
+  inline constexpr simple_state operator()(uint32_t idx, uint32_t input)  //
+  {
+    return {};
+  }
+};
+
+struct simple_state_step_op {
+  template <bool output_enabled>
+  inline constexpr simple_state operator()(  //
+    simple_outputs& outputs,
+    simple_state prev_state,
+    uint32_t rhs)
+  {
+    auto state = simple_state{
+      prev_state.sum + rhs,
+    };
+
+    if (prev_state.sum % 3 == 0) {
+      outputs.a.emit<output_enabled>(state.sum);
+      outputs.b.emit<output_enabled>(state.sum * 2.0);
     }
-    return result;
+
+    return state;
   }
 };
 
-struct simple_intersection_op {
-  inline __device__ uint32_t operator()(uint32_t lhs, uint32_t rhs)
+struct simple_state_join_op {
+  inline constexpr simple_state operator()(simple_state lhs, simple_state rhs)  //
   {
-    printf("bid(%i) tid(%i): intersect %u %u\n", blockIdx.x, threadIdx.x, lhs, rhs);
     return lhs + rhs;
   }
 };
@@ -49,173 +78,77 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
 {
   auto input = thrust::make_constant_iterator<uint32_t>(1);
 
-  auto seed_op      = simple_seed_op{};
-  auto scan_op      = simple_scan_op{};
-  auto intersect_op = simple_intersection_op{};
+  auto seed_op = simple_state_seed_op{};
+  auto step_op = simple_state_step_op{};
+  auto join_op = simple_state_join_op{};
 
-  // const uint32_t size = 1 << 24;
-  const uint32_t input_size = 1 << 15;
+  const uint32_t input_size = 128;
 
   thrust::device_vector<uint32_t> d_input(input, input + input_size);
 
-  auto d_result = scan_artifacts<uint32_t>(d_input.begin(),  //
-                                           d_input.end(),
-                                           seed_op,
-                                           scan_op,
-                                           intersect_op);
+  auto d_output_state = rmm::device_scalar<simple_state>();
+  auto d_output       = rmm::device_scalar<simple_outputs>();
 
-  ASSERT_EQ(static_cast<uint32_t>(input_size / 3) * 2, d_result.size());
+  rmm::device_buffer temp_storage;
 
-  thrust::host_vector<uint32_t> h_result(d_result.size());
-  cudaMemcpy(
-    h_result.data(), d_result.data(), sizeof(uint32_t) * d_result.size(), cudaMemcpyDeviceToHost);
+  // phase 1: count outputs.
+  temp_storage = scan_artifacts(std::move(temp_storage),  //
+                                d_input.begin(),
+                                d_input.end(),
+                                d_output_state.data(),
+                                d_output.data(),
+                                seed_op,
+                                step_op,
+                                join_op);
 
-  for (uint32_t i = 0; i < h_result.size(); i++) {  //
-    ASSERT_EQ(static_cast<uint32_t>((i / 2) * 3 + 3), h_result[i]);
-  }
+  auto h_outputs = d_output.value();
+
+  EXPECT_EQ(static_cast<uint32_t>(input_size), d_output_state.value().sum);
+  EXPECT_EQ(static_cast<uint32_t>(input_size), d_output_state.value().sum);
+
+  EXPECT_EQ(static_cast<uint32_t>(input_size), h_outputs.a.output_count);
+  EXPECT_EQ(static_cast<uint32_t>(input_size), h_outputs.b.output_count);
+
+  // phase 2: allocate outputs
+
+  rmm::device_uvector<uint32_t> output_a(h_outputs.a.output_count, 0);
+  rmm::device_uvector<double> output_b(h_outputs.a.output_count, 0);
+
+  h_outputs.a.output_buffer = output_a.data();
+  h_outputs.b.output_buffer = output_b.data();
 }
 
-// struct successive_capitalization_state {
-//   char curr;
-//   char prev;
-// };
+TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates)
+{
+  // auto input = std::string("hello, world");
 
-// struct successive_capitalization_op {
-//   inline constexpr successive_capitalization_state operator()(  //
-//     successive_capitalization_state lhs,
-//     successive_capitalization_state rhs)
-//   {
-//     return {rhs.curr, lhs.curr};
-//   }
+  // auto d_input = rmm::device_vector<char>(input.c_str(), input.c_str() + input.size());
 
-//   static inline constexpr bool is_capital(char value) { return value >= 'A' and value <= 'Z'; }
+  // auto d_row_offsets = csv_gather_row_offsets(d_input);
 
-//   inline __device__ bool operator()(successive_capitalization_state value)
-//   {
-//     return is_capital(value.prev) and is_capital(value.curr);
-//   }
-// };
+  // thrust::host_vector<uint32_t> h_row_offsets(d_row_offsets.size());
 
-// TEST_F(InclusiveCopyIfTest, CanDetectSuccessiveCapitals)
-// {
-//   auto input_str = std::string("AbcDeFGLiJKlMnoP");
+  // cudaMemcpy(h_row_offsets.data(),  //
+  //            d_row_offsets.data(),
+  //            d_row_offsets.size() * sizeof(char),
+  //            cudaMemcpyDeviceToHost);
 
-//   auto input = rmm::device_vector<successive_capitalization_state>(input_str.size());
+  // ASSERT_EQ(static_cast<uint32_t>(0), h_row_offsets.size());
 
-//   std::transform(input_str.begin(),  //
-//                  input_str.end(),
-//                  input.begin(),
-//                  [](char value) { return successive_capitalization_state{value}; });
+  // auto d_result = scan_artifacts<uint32_t>(d_input.begin(),  //
+  //                                          d_input.end(),
+  //                                          seed_op,
+  //                                          scan_op,
+  //                                          intersect_op);
 
-//   auto op = successive_capitalization_op{};
+  // thrust::host_vector<uint32_t> h_result(d_result.size());
+  // cudaMemcpy(
+  //   h_result.data(), d_result.data(), sizeof(uint32_t) * d_result.size(),
+  //   cudaMemcpyDeviceToHost);
 
-//   auto d_result = scan_artifacts(  //
-//     input.begin(),
-//     input.end(),
-//     op,
-//     op);
-
-//   auto h_result = thrust::host_vector<successive_capitalization_state>(d_result.size());
-
-//   cudaMemcpy(h_result.data(),  //
-//              d_result.data(),
-//              d_result.size() * sizeof(successive_capitalization_state),
-//              cudaMemcpyDeviceToHost);
-
-//   ASSERT_EQ(static_cast<uint32_t>(3), h_result.size());
-
-//   EXPECT_EQ(static_cast<char>('G'), h_result[0].curr);
-//   EXPECT_EQ(static_cast<char>('L'), h_result[1].curr);
-//   EXPECT_EQ(static_cast<char>('K'), h_result[2].curr);
-// }
-
-// enum class csv_token { unknown, comment_start, comment, new_record };
-
-// enum class csv_state { nominal, commented };
-
-// struct csv_token_parse_state {
-//   char c;
-//   csv_token token;
-//   csv_state state;
-// };
-
-// csv_token_parse_state operator+(  //
-//   csv_token_parse_state const& lhs,
-//   csv_token_parse_state const& rhs)
-// {
-//   csv_token_parse_state result;
-
-//   result.c = rhs.c;
-
-//   switch (lhs.state) {
-//     case csv_state::nominal: {
-//       if (lhs.c == '\n') {
-//         if (rhs.c == '#') {
-//           return {rhs.c, csv_token::comment_start, csv_state::commented};
-//         } else {
-//           return {rhs.c, csv_token::new_record, csv_state::nominal};
-//         }
-//       }
-//       return {rhs.c, csv_token::unknown, csv_state::nominal};
-//     }
-//     case csv_state::commented: {
-//       if (lhs.c == '\n') {
-//         if (rhs.c == '#') {
-//           return {rhs.c, csv_token::comment_start, csv_state::commented};
-//         } else {
-//           return {rhs.c, csv_token::new_record, csv_state::nominal};
-//         }
-//       }
-//       return {rhs.c, csv_token::comment, csv_state::commented};
-//     }
-//   }
-
-//   return result;
-// }
-
-// struct csv_token_parse_op {
-//   inline __device__ csv_token_parse_state operator()(  //
-//     csv_token_parse_state lhs,
-//     csv_token_parse_state rhs)
-//   {
-//     return rhs;
-//   }
-//   inline __device__ bool operator()(csv_token_parse_state value) { return true; }
-// };
-
-// TEST_F(InclusiveCopyIfTest, CanParseCsv)
-// {
-//   auto input_str = std::string(
-//     "hello, world\n"
-//     "new, record\n");
-
-//   auto input = rmm::device_vector<successive_capitalization_state>(input_str.size());
-
-//   std::transform(input_str.begin(),  //
-//                  input_str.end(),
-//                  input.begin(),
-//                  [](char value) { return successive_capitalization_state{value}; });
-
-//   auto op = successive_capitalization_op{};
-
-//   auto d_result = scan_artifacts(  //
-//     input.begin(),
-//     input.end(),
-//     op,
-//     op);
-
-//   auto h_result = thrust::host_vector<successive_capitalization_state>(d_result.size());
-
-//   cudaMemcpy(h_result.data(),  //
-//              d_result.data(),
-//              d_result.size() * sizeof(successive_capitalization_state),
-//              cudaMemcpyDeviceToHost);
-
-//   ASSERT_EQ(static_cast<uint32_t>(3), h_result.size());
-
-//   EXPECT_EQ(static_cast<char>('G'), h_result[0].curr);
-//   EXPECT_EQ(static_cast<char>('L'), h_result[1].curr);
-//   EXPECT_EQ(static_cast<char>('K'), h_result[2].curr);
-// }
+  // for (uint32_t i = 0; i < h_result.size(); i++) {  //
+  //   ASSERT_EQ(static_cast<uint32_t>((i / 2) * 3 + 3), h_result[i]);
+  // }
+}
 
 CUDF_TEST_PROGRAM_MAIN()

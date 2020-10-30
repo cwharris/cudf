@@ -47,27 +47,27 @@ struct simple_intersection_op {
 
 static void BM_scan_artifacts(benchmark::State& state)
 {
-  using T = uint64_t;
+  // using T = uint64_t;
 
-  uint32_t input_size = state.range(0);
+  // uint32_t input_size = state.range(0);
 
-  auto seed_op      = simple_seed_op<T>{};
-  auto scan_op      = simple_scan_op<T>{};
-  auto intersect_op = simple_intersection_op<T>{};
+  // auto seed_op      = simple_seed_op<T>{};
+  // auto scan_op      = simple_scan_op<T>{};
+  // auto intersect_op = simple_intersection_op<T>{};
 
-  auto input   = thrust::make_constant_iterator<T>(1);
-  auto d_input = thrust::device_vector<T>(input, input + input_size);
+  // auto input   = thrust::make_constant_iterator<T>(1);
+  // auto d_input = thrust::device_vector<T>(input, input + input_size);
 
-  for (auto _ : state) {
-    cuda_event_timer raii(state, true);
-    auto d_result = scan_artifacts<T>(d_input.begin(),  //
-                                      d_input.end(),
-                                      seed_op,
-                                      scan_op,
-                                      intersect_op);
-  }
+  // for (auto _ : state) {
+  //   cuda_event_timer raii(state, true);
+  //   auto d_result = scan_artifacts<T>(d_input.begin(),  //
+  //                                     d_input.end(),
+  //                                     seed_op,
+  //                                     scan_op,
+  //                                     intersect_op);
+  // }
 
-  state.SetBytesProcessed(state.iterations() * input_size * sizeof(T));
+  // state.SetBytesProcessed(state.iterations() * input_size * sizeof(T));
 }
 
 class ScanArtifactsBenchmark : public cudf::benchmark {
