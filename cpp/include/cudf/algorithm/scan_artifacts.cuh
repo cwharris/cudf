@@ -67,16 +67,18 @@ struct agent {
 
     if (tile_idx < num_tiles - 1) {
       consume_tile<false>(tile_idx, tile_offset, Policy::ITEMS_PER_TILE);
-      printf("bid(%i) tid(%i): ===== X =====\n", blockIdx.x, threadIdx.x);
     } else {
       auto state = consume_tile<true>(tile_idx, tile_offset, num_items_remaining);
 
-      if (threadIdx.x == 0) { *d_output_state = state; }
+      if (threadIdx.x == 0) {
+        *d_output_state = state.first;
+        *d_output       = state.second;
+      }
     }
   }
 
   template <bool IS_LAST_TILE>
-  inline __device__ typename Policy::State  //
+  inline __device__ thrust::pair<typename Policy::State, typename Policy::Output>  //
   consume_tile(uint32_t const tile_idx,
                uint32_t const tile_offset,
                uint32_t const num_items_remaining)
@@ -93,6 +95,10 @@ struct agent {
       };
     } temp_storage;
 
+    if (threadIdx.x == 0) {  //
+      printf("bid(%i) tid(%i): ===== 0 =====\n", blockIdx.x, threadIdx.x);
+    }
+
     uint32_t const thread_offset = threadIdx.x * Policy::ITEMS_PER_THREAD;
 
     // Load Inputs
@@ -107,13 +113,17 @@ struct agent {
         .Load(d_input + tile_offset, items);
     }
 
+    if (threadIdx.x == 0) {  //
+      printf("bid(%i) tid(%i): ===== 1 =====\n", blockIdx.x, threadIdx.x);
+    }
+
     __syncthreads();
 
-    auto thread_output = *d_output;
-
     // Scan Inputs per Thread
-    auto thread_seed  = seed_op(tile_offset + thread_offset, items[0]);
-    auto thread_state = thread_seed;
+
+    auto thread_seed   = seed_op(tile_offset + thread_offset, items[0]);
+    auto thread_state  = thread_seed;
+    auto thread_output = *d_output;
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
@@ -121,11 +131,14 @@ struct agent {
       };
     };
 
+    if (threadIdx.x == 0) {  //
+      printf("bid(%i) tid(%i): ===== 2 =====\n", blockIdx.x, threadIdx.x);
+    }
+
+    // Scan Inputs
+
     typename Policy::State block_state;
 
-    // this first pass doesn't contain the correct... output... offsets?
-
-    // Intersect Block States and Get Exclusive Thread State
     if (tile_idx == 0) {
       if (threadIdx.x == 0) { printf("bid(%i) tid(%i): ===== 3 =====\n", blockIdx.x, threadIdx.x); }
 
@@ -142,8 +155,6 @@ struct agent {
       }
 
     } else {
-      if (threadIdx.x == 0) { printf("bid(%i) tid(%i): ===== 4 =====\n", blockIdx.x, threadIdx.x); }
-
       auto prefix_op = Policy::StatePrefixCallback(  //
         state_tile_state,
         temp_storage.state_prefix,
@@ -157,14 +168,19 @@ struct agent {
           join_op,
           prefix_op);
 
-      block_state = prefix_op.GetBlockAggregate();
+      block_state = prefix_op.GetInclusivePrefix();
     }
 
-    if (threadIdx.x == 0) { printf("bid(%i) tid(%i): ===== 5 =====\n", blockIdx.x, threadIdx.x); }
+    if (threadIdx.x == 0) {  //
+      printf("bid(%i) tid(%i): ===== 3 =====\n", blockIdx.x, threadIdx.x);
+    }
 
     __syncthreads();
 
     // Count Outputs
+
+    thread_output = *d_output;  // reset state gathering.
+    thread_seed   = thread_state;
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
@@ -172,7 +188,10 @@ struct agent {
       }
     }
 
-    // count block outputs and initialize output offsets
+    if (threadIdx.x == 0) {  //
+      printf("bid(%i) tid(%i): ===== 4 =====\n", blockIdx.x, threadIdx.x);
+    }
+
     typename Policy::Output block_output;
 
     if (tile_idx == 0) {
@@ -203,7 +222,28 @@ struct agent {
       block_output = prefix_op.GetInclusivePrefix();
     }
 
-    if (threadIdx.x == 0) { printf("bid(%i) tid(%i): ===== 6 =====\n", blockIdx.x, threadIdx.x); }
+    __syncthreads();
+
+    thread_output = *d_output;  // reset state gathering.
+    thread_state  = thread_seed;
+
+    if (threadIdx.x == 0) {  //
+      printf("bid(%i) tid(%i): ===== 5 =====\n", blockIdx.x, threadIdx.x);
+      printf("bid(%i) tid(%i): block: state (%i) out (%i %i)\n",  //
+             blockIdx.x,
+             threadIdx.x,
+             block_state.sum,
+             block_output.a.output_count,
+             block_output.b.output_count);
+      printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
+             blockIdx.x,
+             threadIdx.x,
+             thread_state.sum,
+             thread_output.a.output_count,
+             thread_output.b.output_count);
+    }
+
+    // Collect Outputs
 
     if (not is_first_pass) {
       for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
@@ -213,7 +253,11 @@ struct agent {
       }
     }
 
-    return block_state;  // also need to output block_output
+    if (threadIdx.x == 0) {  //
+      printf("bid(%i) tid(%i): ===== 6 =====\n", blockIdx.x, threadIdx.x);
+    }
+
+    return {block_state, block_output};  // also need to output block_output
   }
 };
 
@@ -221,12 +265,12 @@ struct agent {
 
 template <typename Policy>
 __global__ void initialization_pass_kernel(  //
-  typename Policy::StateTileState items_state,
+  typename Policy::StateTileState state_tile_state,
+  typename Policy::OutputTileState output_tile_state,
   uint32_t num_tiles)
 {
-  printf("bid(%i) tid(%i): ===== INIT =====\n", blockIdx.x, threadIdx.x);
-
-  items_state.InitializeStatus(num_tiles);
+  state_tile_state.InitializeStatus(num_tiles);
+  output_tile_state.InitializeStatus(num_tiles);
 }
 
 template <typename Policy>
@@ -304,7 +348,7 @@ struct policy {
   using StateBlockScan = cub::BlockScan<  //
     State,
     THREADS_PER_BLOCK,
-    cub::BlockScanAlgorithm::BLOCK_SCAN_WARP_SCANS>;
+    cub::BlockScanAlgorithm::BLOCK_SCAN_RAKING>;
 
   using OutputTileState      = cub::ScanTileState<Output>;
   using OutputPrefixCallback = cub::TilePrefixCallbackOp<Output, cub::Sum, OutputTileState>;
@@ -312,7 +356,7 @@ struct policy {
   using OutputBlockScan = cub::BlockScan<  //
     Output,
     THREADS_PER_BLOCK,
-    cub::BlockScanAlgorithm::BLOCK_SCAN_WARP_SCANS>;
+    cub::BlockScanAlgorithm::BLOCK_SCAN_RAKING>;
 };
 
 // ===== Entry =====================================================================================
@@ -336,8 +380,6 @@ rmm::device_buffer scan_artifacts(  //
 {
   CUDF_FUNC_RANGE();
 
-  printf("===== 0 =====\n");
-
   using Policy = policy<InputIterator, OutputStateIterator, OutputIterator, SeedOp, StepOp, JoinOp>;
 
   uint32_t num_tiles = ceil_div(d_in_end - d_in_begin, Policy::ITEMS_PER_TILE);
@@ -359,10 +401,7 @@ rmm::device_buffer scan_artifacts(  //
 
   auto const is_first_pass = temp_storage.size() != temp_storage_bytes;
 
-  printf("===== 1 =====\n");
-
   if (is_first_pass) {
-    printf("===== 2 =====\n");
     temp_storage = rmm::device_buffer(temp_storage_bytes, stream);
 
     CUDA_TRY(cub::AliasTemporaries(temp_storage.data(),  //
@@ -370,8 +409,6 @@ rmm::device_buffer scan_artifacts(  //
                                    allocations,
                                    allocation_sizes));
   }
-
-  printf("===== 3 =====\n");
 
   // initialize
 
@@ -381,29 +418,23 @@ rmm::device_buffer scan_artifacts(  //
   CUDA_TRY(state_tile_state.Init(num_tiles, allocations[0], allocation_sizes[0]));
   CUDA_TRY(output_tile_state.Init(num_tiles, allocations[1], allocation_sizes[1]));
 
-  printf("===== 4 =====\n");
-
   if (is_first_pass) {
-    printf("===== 5 =====\n");
     uint32_t num_init_blocks = ceil_div(num_tiles, Policy::THREADS_PER_INIT_BLOCK);
 
     auto init_kernel = initialization_pass_kernel<Policy>;
     init_kernel<<<num_init_blocks, Policy::THREADS_PER_INIT_BLOCK, 0, stream>>>(  //
       state_tile_state,
+      output_tile_state,
       num_tiles);
 
     CHECK_CUDA(stream);
   }
-
-  printf("===== 6 =====\n");
 
   auto exec_kernel = execution_pass_kernel<Policy>;
 
   uint32_t tiles_per_pass = 1 << 10;
 
   for (uint32_t start_tile = 0; start_tile < num_tiles; start_tile += tiles_per_pass) {
-    printf("===== 7 =====\n");
-
     tiles_per_pass = std::min(tiles_per_pass, num_tiles - start_tile);
 
     exec_kernel<<<tiles_per_pass, Policy::THREADS_PER_BLOCK, 0, stream>>>(  //
@@ -422,7 +453,6 @@ rmm::device_buffer scan_artifacts(  //
 
     CHECK_CUDA(stream);
   }
-  printf("===== 8 =====\n");
 
   return temp_storage;
 }

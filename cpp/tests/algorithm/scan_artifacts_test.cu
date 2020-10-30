@@ -21,8 +21,16 @@ struct simple_outputs {
   fsm_output<uint32_t> a;
   fsm_output<double> b;
 
-  inline constexpr simple_outputs operator+(simple_outputs other) const
+  inline __device__ simple_outputs operator+(simple_outputs other) const
   {
+    // printf("bid(%i) tid(%i): simple_outputs (%i %i) + (%i %i)\n",  //
+    //        blockIdx.x,
+    //        threadIdx.x,
+    //        a.output_count,
+    //        b.output_count,
+    //        other.a.output_count,
+    //        other.b.output_count);
+
     return {
       a + other.a,
       b + other.b,
@@ -32,8 +40,14 @@ struct simple_outputs {
 
 struct simple_state {
   uint32_t sum;
-  inline constexpr simple_state operator+(simple_state other) const
+  inline __device__ simple_state operator+(simple_state other) const
   {
+    // printf("bid(%i) tid(%i): simple_state %i + %i\n",  //
+    //        blockIdx.x,
+    //        threadIdx.x,
+    //        sum,
+    //        other.sum);
+
     return {
       sum + other.sum,
     };
@@ -41,19 +55,33 @@ struct simple_state {
 };
 
 struct simple_state_seed_op {
-  inline constexpr simple_state operator()(uint32_t idx, uint32_t input)  //
+  inline __device__ simple_state operator()(uint32_t idx, uint32_t input)  //
   {
+    // printf("bid(%i) tid(%i): simple_state_seed_op %i + %i\n",  //
+    //        blockIdx.x,
+    //        threadIdx.x,
+    //        idx,
+    //        input);
+
     return {};
   }
 };
 
 struct simple_state_step_op {
   template <bool output_enabled>
-  inline constexpr simple_state operator()(  //
+  inline __device__ simple_state operator()(  //
     simple_outputs& outputs,
     simple_state prev_state,
     uint32_t rhs)
   {
+    // printf("bid(%i) tid(%i): simple_state_step_op (%i, %i), %i, %i\n",  //
+    //        blockIdx.x,
+    //        threadIdx.x,
+    //        outputs.a.output_count,
+    //        outputs.b.output_count,
+    //        prev_state.sum,
+    //        rhs);
+
     auto state = simple_state{
       prev_state.sum + rhs,
     };
@@ -68,8 +96,14 @@ struct simple_state_step_op {
 };
 
 struct simple_state_join_op {
-  inline constexpr simple_state operator()(simple_state lhs, simple_state rhs)  //
+  inline __device__ simple_state operator()(simple_state lhs, simple_state rhs)  //
   {
+    // printf("bid(%i) tid(%i): simple_state_step_op %i => %i\n",  //
+    //        blockIdx.x,
+    //        threadIdx.x,
+    //        lhs.sum,
+    //        rhs.sum);
+
     return lhs + rhs;
   }
 };
@@ -82,7 +116,7 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   auto step_op = simple_state_step_op{};
   auto join_op = simple_state_join_op{};
 
-  const uint32_t input_size = 128;
+  const uint32_t input_size = 1 << 10;
 
   thrust::device_vector<uint32_t> d_input(input, input + input_size);
 
@@ -106,8 +140,8 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   EXPECT_EQ(static_cast<uint32_t>(input_size), d_output_state.value().sum);
   EXPECT_EQ(static_cast<uint32_t>(input_size), d_output_state.value().sum);
 
-  EXPECT_EQ(static_cast<uint32_t>(input_size), h_outputs.a.output_count);
-  EXPECT_EQ(static_cast<uint32_t>(input_size), h_outputs.b.output_count);
+  EXPECT_EQ(static_cast<uint32_t>(input_size / 3), h_outputs.a.output_count);
+  EXPECT_EQ(static_cast<uint32_t>(input_size / 3), h_outputs.b.output_count);
 
   // phase 2: allocate outputs
 
