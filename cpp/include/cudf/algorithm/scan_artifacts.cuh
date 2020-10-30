@@ -29,16 +29,17 @@ struct fsm_output {
   uint32_t output_count;
 
   template <bool output_enabled>
-  constexpr inline void emit(T value)
+  inline __device__ void emit(T value)
   {
     if (output_enabled) {
+      printf("output %i = %i\n", output_count, value);
       output_buffer[output_count++] = value;
     } else {
       output_count++;
     }
   }
 
-  constexpr inline fsm_output operator+(fsm_output other) const
+  inline constexpr fsm_output operator+(fsm_output other) const
   {
     return {output_buffer, output_count + other.output_count};
   }
@@ -71,8 +72,10 @@ struct agent {
       auto state = consume_tile<true>(tile_idx, tile_offset, num_items_remaining);
 
       if (threadIdx.x == 0) {
+        printf("bid(%i) tid(%i): ===== final outputs =====\n", blockIdx.x, threadIdx.x);
         *d_output_state = state.first;
         *d_output       = state.second;
+        printf("bid(%i) tid(%i): ===== final outputs - end =====\n", blockIdx.x, threadIdx.x);
       }
     }
   }
@@ -219,13 +222,14 @@ struct agent {
           cub::Sum(),
           prefix_op);
 
-      block_output = prefix_op.GetInclusivePrefix();
+      block_output  = prefix_op.GetInclusivePrefix();
+      thread_output = prefix_op.GetExclusivePrefix();
     }
 
     __syncthreads();
 
-    thread_output = *d_output;  // reset state gathering.
-    thread_state  = thread_seed;
+    // thread_output = *d_output;  // reset state gathering.
+    // thread_state  = thread_seed;
 
     if (threadIdx.x == 0) {  //
       printf("bid(%i) tid(%i): ===== 5 =====\n", blockIdx.x, threadIdx.x);
@@ -245,6 +249,8 @@ struct agent {
 
     // Collect Outputs
 
+    // thread_state = thread_seed;
+
     if (not is_first_pass) {
       for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
         if (thread_offset + i < num_items_remaining) {
@@ -261,7 +267,8 @@ struct agent {
   }
 };
 
-// ===== Kernels ===================================================================================
+// ===== Kernels
+// ===================================================================================
 
 template <typename Policy>
 __global__ void initialization_pass_kernel(  //
@@ -304,7 +311,8 @@ __global__ void execution_pass_kernel(  //
   agent_instance.consume_range(num_tiles, start_tile);
 }
 
-// ===== Policy ====================================================================================
+// ===== Policy
+// ====================================================================================
 
 template <typename InputIterator_,
           typename OutputStateIterator_,
@@ -359,7 +367,8 @@ struct policy {
     cub::BlockScanAlgorithm::BLOCK_SCAN_RAKING>;
 };
 
-// ===== Entry =====================================================================================
+// ===== Entry
+// =====================================================================================
 
 template <typename InputIterator,
           typename OutputStateIterator,
@@ -368,7 +377,7 @@ template <typename InputIterator,
           typename StepOp,
           typename JoinOp>
 rmm::device_buffer scan_artifacts(  //
-  rmm::device_buffer temp_storage,
+  rmm::device_buffer&& temp_storage,
   InputIterator d_in_begin,
   InputIterator d_in_end,
   OutputStateIterator d_output_state,
@@ -401,14 +410,12 @@ rmm::device_buffer scan_artifacts(  //
 
   auto const is_first_pass = temp_storage.size() != temp_storage_bytes;
 
-  if (is_first_pass) {
-    temp_storage = rmm::device_buffer(temp_storage_bytes, stream);
+  if (is_first_pass) { temp_storage = rmm::device_buffer(temp_storage_bytes, stream); }
 
-    CUDA_TRY(cub::AliasTemporaries(temp_storage.data(),  //
-                                   temp_storage_bytes,
-                                   allocations,
-                                   allocation_sizes));
-  }
+  CUDA_TRY(cub::AliasTemporaries(temp_storage.data(),  //
+                                 temp_storage_bytes,
+                                 allocations,
+                                 allocation_sizes));
 
   // initialize
 
@@ -418,17 +425,17 @@ rmm::device_buffer scan_artifacts(  //
   CUDA_TRY(state_tile_state.Init(num_tiles, allocations[0], allocation_sizes[0]));
   CUDA_TRY(output_tile_state.Init(num_tiles, allocations[1], allocation_sizes[1]));
 
-  if (is_first_pass) {
-    uint32_t num_init_blocks = ceil_div(num_tiles, Policy::THREADS_PER_INIT_BLOCK);
+  // if (is_first_pass) {
+  uint32_t num_init_blocks = ceil_div(num_tiles, Policy::THREADS_PER_INIT_BLOCK);
 
-    auto init_kernel = initialization_pass_kernel<Policy>;
-    init_kernel<<<num_init_blocks, Policy::THREADS_PER_INIT_BLOCK, 0, stream>>>(  //
-      state_tile_state,
-      output_tile_state,
-      num_tiles);
+  auto init_kernel = initialization_pass_kernel<Policy>;
+  init_kernel<<<num_init_blocks, Policy::THREADS_PER_INIT_BLOCK, 0, stream>>>(  //
+    state_tile_state,
+    output_tile_state,
+    num_tiles);
 
-    CHECK_CUDA(stream);
-  }
+  CHECK_CUDA(stream);
+  // }
 
   auto exec_kernel = execution_pass_kernel<Policy>;
 

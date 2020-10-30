@@ -7,6 +7,7 @@
 #include <cudf/algorithm/scan_artifacts.cuh>
 #include <cudf/utilities/span.hpp>
 #include "gtest/gtest.h"
+#include "rmm/device_buffer.hpp"
 #include "rmm/device_scalar.hpp"
 #include "rmm/device_uvector.hpp"
 
@@ -17,13 +18,13 @@
 class InclusiveCopyIfTest : public cudf::test::BaseFixture {
 };
 
-struct simple_outputs {
+struct simple_output {
   fsm_output<uint32_t> a;
   fsm_output<double> b;
 
-  inline __device__ simple_outputs operator+(simple_outputs other) const
+  inline __device__ simple_output operator+(simple_output other) const
   {
-    // printf("bid(%i) tid(%i): simple_outputs (%i %i) + (%i %i)\n",  //
+    // printf("bid(%i) tid(%i): simple_output (%i %i) + (%i %i)\n",  //
     //        blockIdx.x,
     //        threadIdx.x,
     //        a.output_count,
@@ -70,7 +71,7 @@ struct simple_state_seed_op {
 struct simple_state_step_op {
   template <bool output_enabled>
   inline __device__ simple_state operator()(  //
-    simple_outputs& outputs,
+    simple_output& outputs,
     simple_state prev_state,
     uint32_t rhs)
   {
@@ -86,10 +87,8 @@ struct simple_state_step_op {
       prev_state.sum + rhs,
     };
 
-    if (prev_state.sum % 3 == 0) {
-      outputs.a.emit<output_enabled>(state.sum);
-      outputs.b.emit<output_enabled>(state.sum * 2.0);
-    }
+    if (state.sum % 3 == 0) { outputs.a.emit<output_enabled>(state.sum); }
+    // if (state.sum % 2 == 0) { outputs.b.emit<output_enabled>(state.sum * 2.0); }
 
     return state;
   }
@@ -116,12 +115,14 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   auto step_op = simple_state_step_op{};
   auto join_op = simple_state_join_op{};
 
-  const uint32_t input_size = 1 << 10;
+  const uint32_t input_size             = 1 << 3;
+  const uint32_t expected_output_size_a = input_size / 3;
+  // const uint32_t expected_output_size_b = input_size / 2;
 
   thrust::device_vector<uint32_t> d_input(input, input + input_size);
 
   auto d_output_state = rmm::device_scalar<simple_state>();
-  auto d_output       = rmm::device_scalar<simple_outputs>();
+  auto d_output       = rmm::device_scalar<simple_output>();
 
   rmm::device_buffer temp_storage;
 
@@ -135,21 +136,70 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
                                 step_op,
                                 join_op);
 
-  auto h_outputs = d_output.value();
+  auto h_output       = d_output.value();
+  auto h_output_state = d_output_state.value();
 
-  EXPECT_EQ(static_cast<uint32_t>(input_size), d_output_state.value().sum);
-  EXPECT_EQ(static_cast<uint32_t>(input_size), d_output_state.value().sum);
+  EXPECT_EQ(input_size, h_output_state.sum);
+  EXPECT_EQ(input_size, h_output_state.sum);
 
-  EXPECT_EQ(static_cast<uint32_t>(input_size / 3), h_outputs.a.output_count);
-  EXPECT_EQ(static_cast<uint32_t>(input_size / 3), h_outputs.b.output_count);
+  ASSERT_EQ(expected_output_size_a, h_output.a.output_count);
+  // ASSERT_EQ(expected_output_size_b, h_output.b.output_count);
 
   // phase 2: allocate outputs
 
-  rmm::device_uvector<uint32_t> output_a(h_outputs.a.output_count, 0);
-  rmm::device_uvector<double> output_b(h_outputs.a.output_count, 0);
+  auto output_a = rmm::device_uvector<uint32_t>(h_output.a.output_count, 0);
+  auto output_b = rmm::device_uvector<double>(h_output.b.output_count, 0);
 
-  h_outputs.a.output_buffer = output_a.data();
-  h_outputs.b.output_buffer = output_b.data();
+  h_output                 = {};
+  h_output.a.output_buffer = output_a.data();
+  h_output.b.output_buffer = output_b.data();
+
+  d_output.set_value(h_output);
+  d_output_state.set_value({});
+
+  temp_storage = scan_artifacts(std::move(temp_storage),  //
+                                d_input.begin(),
+                                d_input.end(),
+                                d_output_state.data(),
+                                d_output.data(),
+                                seed_op,
+                                step_op,
+                                join_op);
+
+  h_output       = d_output.value();
+  h_output_state = d_output_state.value();
+
+  EXPECT_EQ(input_size, h_output_state.sum);
+  EXPECT_EQ(input_size, h_output_state.sum);
+
+  ASSERT_EQ(expected_output_size_a, h_output.a.output_count);
+  // ASSERT_EQ(expected_output_size_b, h_output.b.output_count);
+
+  ASSERT_EQ(output_a.data(), h_output.a.output_buffer);
+  // ASSERT_EQ(output_b.data(), h_output.b.output_buffer);
+
+  auto h_output_a = std::vector<uint32_t>(h_output.a.output_count);
+  // auto h_output_b = std::vector<double>(h_output.a.output_count);
+
+  cudaMemcpy(h_output_a.data(),
+             h_output.a.output_buffer,
+             h_output.a.output_count * sizeof(uint32_t),
+             cudaMemcpyDeviceToHost);
+
+  // cudaMemcpy(h_output_b.data(),
+  //            h_output.b.output_buffer,
+  //            h_output.b.output_count * sizeof(double),
+  //            cudaMemcpyDeviceToHost);
+
+  for (uint32_t i = 0; i < h_output_a.size(); i++) {
+    // EXPECT_EQ(static_cast<uint32_t>(i * 3), h_output_a[i]);
+    EXPECT_EQ(static_cast<uint32_t>(-1), h_output_a[i]);
+  }
+
+  // for (uint32_t i = 0; i < h_output_b.size(); i++) {
+  //   // EXPECT_EQ(static_cast<double>(i * 3), h_output_b[i]);
+  //   ASSERT_EQ(static_cast<double>(-1), h_output_b[i]);
+  // }
 }
 
 TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates)
