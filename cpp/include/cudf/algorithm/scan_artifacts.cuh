@@ -32,7 +32,11 @@ struct fsm_output {
   inline __device__ void emit(T value)
   {
     if (output_enabled) {
-      printf("output %i = %i\n", output_count, value);
+      printf("bid(%i) tid(%i): output %i = %i\n",  //
+             blockIdx.x,
+             threadIdx.x,
+             output_count,
+             value);
       output_buffer[output_count++] = value;
     } else {
       output_count++;
@@ -124,9 +128,23 @@ struct agent {
 
     // Scan Inputs per Thread
 
-    auto thread_seed   = seed_op(tile_offset + thread_offset, items[0]);
-    auto thread_state  = thread_seed;
-    auto thread_output = *d_output;
+    auto thread_state_seed        = seed_op(tile_offset + thread_offset, items[0]);
+    auto const thread_output_seed = *d_output;
+    auto thread_state             = thread_state_seed;
+    auto thread_output            = thread_output_seed;
+
+    if (thread_offset < num_items_remaining) {
+      printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
+             blockIdx.x,
+             threadIdx.x,
+             thread_state.sum,
+             thread_output.a.output_count,
+             thread_output.b.output_count);
+    }
+
+    if (threadIdx.x == 0) {  //
+      printf("bid(%i) tid(%i): ===== 1 and halvfe =====\n", blockIdx.x, threadIdx.x);
+    }
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
@@ -136,6 +154,17 @@ struct agent {
 
     if (threadIdx.x == 0) {  //
       printf("bid(%i) tid(%i): ===== 2 =====\n", blockIdx.x, threadIdx.x);
+    }
+
+    __syncthreads();
+
+    if (thread_offset < num_items_remaining) {
+      printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
+             blockIdx.x,
+             threadIdx.x,
+             thread_state.sum,
+             thread_output.a.output_count,
+             thread_output.b.output_count);
     }
 
     // Scan Inputs
@@ -149,7 +178,7 @@ struct agent {
         .ExclusiveScan(                                //
           thread_state,
           thread_state,
-          thread_seed,
+          thread_state_seed,  // TODO: this seed is probably wrong.
           join_op,
           block_state);
 
@@ -167,7 +196,7 @@ struct agent {
       Policy::StateBlockScan(temp_storage.state_scan)  //
         .ExclusiveScan(                                //
           thread_state,
-          thread_state,
+          thread_state,  // TODO: probably needs a seed
           join_op,
           prefix_op);
 
@@ -179,11 +208,26 @@ struct agent {
     }
 
     __syncthreads();
+    if (thread_offset < num_items_remaining) {
+      printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
+             blockIdx.x,
+             threadIdx.x,
+             thread_state.sum,
+             thread_output.a.output_count,
+             thread_output.b.output_count);
+    }
+
+    if (threadIdx.x == 0) {                                     //
+      printf("bid(%i) tid(%i): block: state (%i) out (x x)\n",  //
+             blockIdx.x,
+             threadIdx.x,
+             block_state.sum);
+    }
 
     // Count Outputs
 
-    thread_output = *d_output;  // reset state gathering.
-    thread_seed   = thread_state;
+    thread_output     = *d_output;  // reset state gathering.
+    thread_state_seed = thread_state;
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
@@ -195,6 +239,23 @@ struct agent {
       printf("bid(%i) tid(%i): ===== 4 =====\n", blockIdx.x, threadIdx.x);
     }
 
+    __syncthreads();
+    if (thread_offset < num_items_remaining) {
+      printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
+             blockIdx.x,
+             threadIdx.x,
+             thread_state.sum,
+             thread_output.a.output_count,
+             thread_output.b.output_count);
+    }
+
+    if (threadIdx.x == 0) {                                     //
+      printf("bid(%i) tid(%i): block: state (%i) out (x x)\n",  //
+             blockIdx.x,
+             threadIdx.x,
+             block_state.sum);
+    }
+
     typename Policy::Output block_output;
 
     if (tile_idx == 0) {
@@ -202,6 +263,7 @@ struct agent {
         .ExclusiveScan(                                  //
           thread_output,
           thread_output,
+          *d_output,
           cub::Sum(),
           block_output);
 
@@ -227,16 +289,14 @@ struct agent {
 
     __syncthreads();
 
-    thread_state = thread_seed;
+    thread_state = thread_state_seed;
 
     if (threadIdx.x == 0) {  //
       printf("bid(%i) tid(%i): ===== 5 =====\n", blockIdx.x, threadIdx.x);
-      printf("bid(%i) tid(%i): block: state (%i) out (%i %i)\n",  //
-             blockIdx.x,
-             threadIdx.x,
-             block_state.sum,
-             block_output.a.output_count,
-             block_output.b.output_count);
+    }
+
+    __syncthreads();
+    if (thread_offset < num_items_remaining) {
       printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
              blockIdx.x,
              threadIdx.x,
@@ -245,9 +305,18 @@ struct agent {
              thread_output.b.output_count);
     }
 
+    if (threadIdx.x == 0) {                                       //
+      printf("bid(%i) tid(%i): block: state (%i) out (%i %i)\n",  //
+             blockIdx.x,
+             threadIdx.x,
+             block_state.sum,
+             block_output.a.output_count,
+             block_output.b.output_count);
+    }
+
     // Collect Outputs
 
-    // thread_state = thread_seed;
+    // thread_state = thread_state_seed;
 
     if (not is_first_pass) {
       for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
@@ -321,7 +390,7 @@ template <typename InputIterator_,
 struct policy {
   static constexpr uint32_t THREADS_PER_INIT_BLOCK = 128;
   static constexpr uint32_t THREADS_PER_BLOCK      = 32;
-  static constexpr uint32_t ITEMS_PER_THREAD       = 2;
+  static constexpr uint32_t ITEMS_PER_THREAD       = 1;
   static constexpr uint32_t ITEMS_PER_TILE         = ITEMS_PER_THREAD * THREADS_PER_BLOCK;
 
   using InputIterator       = InputIterator_;

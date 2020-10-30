@@ -75,20 +75,20 @@ struct simple_state_step_op {
     simple_state prev_state,
     uint32_t rhs)
   {
-    // printf("bid(%i) tid(%i): simple_state_step_op (%i, %i), %i, %i\n",  //
-    //        blockIdx.x,
-    //        threadIdx.x,
-    //        outputs.a.output_count,
-    //        outputs.b.output_count,
-    //        prev_state.sum,
-    //        rhs);
+    printf("bid(%i) tid(%i): simple_state_step_op (%i, %i), %i, %i\n",  //
+           blockIdx.x,
+           threadIdx.x,
+           outputs.a.output_count,
+           outputs.b.output_count,
+           prev_state.sum,
+           rhs);
 
     auto state = simple_state{
       prev_state.sum + rhs,
     };
 
     if (state.sum % 3 == 0) { outputs.a.emit<output_enabled>(state.sum); }
-    // if (state.sum % 2 == 0) { outputs.b.emit<output_enabled>(state.sum * 2.0); }
+    if (state.sum % 2 == 0) { outputs.b.emit<output_enabled>(state.sum * 2.0); }
 
     return state;
   }
@@ -115,9 +115,9 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   auto step_op = simple_state_step_op{};
   auto join_op = simple_state_join_op{};
 
-  const uint32_t input_size             = 1 << 15;
+  const uint32_t input_size             = (1 << 5) + 4;
   const uint32_t expected_output_size_a = input_size / 3;
-  // const uint32_t expected_output_size_b = input_size / 2;
+  const uint32_t expected_output_size_b = input_size / 2;
 
   thrust::device_vector<uint32_t> d_input(input, input + input_size);
 
@@ -143,7 +143,7 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   EXPECT_EQ(input_size, h_output_state.sum);
 
   ASSERT_EQ(expected_output_size_a, h_output.a.output_count);
-  // ASSERT_EQ(expected_output_size_b, h_output.b.output_count);
+  ASSERT_EQ(expected_output_size_b, h_output.b.output_count);
 
   // phase 2: allocate outputs
 
@@ -173,33 +173,31 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   EXPECT_EQ(input_size, h_output_state.sum);
 
   ASSERT_EQ(expected_output_size_a, h_output.a.output_count);
-  // ASSERT_EQ(expected_output_size_b, h_output.b.output_count);
+  ASSERT_EQ(expected_output_size_b, h_output.b.output_count);
 
   ASSERT_EQ(output_a.data(), h_output.a.output_buffer);
-  // ASSERT_EQ(output_b.data(), h_output.b.output_buffer);
+  ASSERT_EQ(output_b.data(), h_output.b.output_buffer);
 
   auto h_output_a = std::vector<uint32_t>(h_output.a.output_count);
-  // auto h_output_b = std::vector<double>(h_output.a.output_count);
+  auto h_output_b = std::vector<double>(h_output.a.output_count);
 
   cudaMemcpy(h_output_a.data(),
              h_output.a.output_buffer,
              h_output.a.output_count * sizeof(uint32_t),
              cudaMemcpyDeviceToHost);
 
-  // cudaMemcpy(h_output_b.data(),
-  //            h_output.b.output_buffer,
-  //            h_output.b.output_count * sizeof(double),
-  //            cudaMemcpyDeviceToHost);
+  cudaMemcpy(h_output_b.data(),
+             h_output.b.output_buffer,
+             h_output.b.output_count * sizeof(double),
+             cudaMemcpyDeviceToHost);
 
   for (uint32_t i = 0; i < h_output_a.size(); i++) {
-    EXPECT_EQ(static_cast<uint32_t>(i * 3) + 3, h_output_a[i]);
-    // EXPECT_EQ(static_cast<uint32_t>(-1), h_output_a[i]);
+    ASSERT_EQ(static_cast<uint32_t>(i * 3 + 3), h_output_a[i]);
   }
 
-  // for (uint32_t i = 0; i < h_output_b.size(); i++) {
-  //   // EXPECT_EQ(static_cast<double>(i * 3), h_output_b[i]);
-  //   ASSERT_EQ(static_cast<double>(-1), h_output_b[i]);
-  // }
+  for (uint32_t i = 0; i < h_output_b.size(); i++) {
+    ASSERT_EQ(static_cast<double>(i * 4.0 + 4), h_output_b[i]);
+  }
 }
 
 TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates)
