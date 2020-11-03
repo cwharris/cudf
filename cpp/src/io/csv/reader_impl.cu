@@ -25,11 +25,14 @@
 #include <io/utilities/parsing_utils.cuh>
 #include <io/utilities/type_conversion.cuh>
 
+#include <cudf/algorithm/csv_gpu_row_count.cuh>
 #include <cudf/io/types.hpp>
 #include <cudf/strings/replace.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
+
+#include <rmm/thrust_rmm_allocator.h>
 
 #include <algorithm>
 #include <iostream>
@@ -388,6 +391,21 @@ void reader::impl::gather_row_offsets(host_span<char const> const data,
                                       bool load_whole_file,
                                       cudaStream_t stream)
 {
+  // auto d_csv_input = rmm::device_uvector<char>(data.size(), stream);
+
+  // cudaMemcpy(d_csv_input.data(),  //
+  //            data.data(),
+  //            data.size() * sizeof(char),
+  //            cudaMemcpyHostToDevice);
+
+  // auto d_offsets = cudf::io::detail::csv_gather_row_offsets(d_csv_input, stream);
+
+  // row_offsets_.resize(d_offsets.size());
+
+  // thrust::copy(rmm::exec_policy(stream)->on(stream),  //
+  //              d_offsets.begin(),
+  //              d_offsets.end(),
+  //              row_offsets_.begin());
   constexpr size_t max_chunk_bytes = 64 * 1024 * 1024;  // 64MB
   size_t buffer_size               = std::min(max_chunk_bytes, data.size());
   size_t max_blocks =

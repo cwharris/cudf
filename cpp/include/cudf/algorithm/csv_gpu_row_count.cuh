@@ -200,8 +200,9 @@ struct csv_machine_state {
     return false;
   }
 
-  inline __host__ __device__ csv_machine_state operator+(csv_machine_state const& rhs) const
+  inline __host__ __device__ csv_machine_state operator&(csv_machine_state const& rhs) const
   {
+    // the result of this function is the "real" rhs state.
     csv_machine_state result;
 
     result.idx = rhs.idx;
@@ -219,7 +220,9 @@ struct csv_machine_state {
 };
 
 struct csv_fsm_seed_op {
-  inline __host__ __device__ csv_machine_state operator()(uint32_t idx, char current_char)  //
+  inline __host__ __device__ csv_machine_state operator()(  //
+    uint32_t idx,
+    char current_char)
   {
     if (idx == 0) {  //
       return {idx, 1, {{csv_state::record_end, csv_state::record_end}}};
@@ -241,24 +244,15 @@ struct csv_fsm_seed_op {
 
 struct csv_fsm_scan_op {
   template <bool output_enabled>
-  inline __host__ __device__ csv_machine_state operator()(csv_fsm_outputs& outputs,
-                                                          csv_machine_state state,
-                                                          char current_char)  //
+  inline __host__ __device__ csv_machine_state operator()(  //
+    csv_fsm_outputs& outputs,
+    csv_machine_state state,
+    char current_char)
   {
     auto token      = get_token(0, current_char);
     auto next_state = state.get_next(token);
 
-    if (output_enabled) {
-      printf("bid(%i) tid(%i): %i %i\n",
-             blockIdx.x,
-             threadIdx.x,
-             static_cast<uint32_t>(next_state.num_states),
-             static_cast<uint32_t>(next_state.states[0].second));
-    }
-
     if (state.includes(csv_state::record_end) and next_state.includes(csv_state::field)) {
-      printf(
-        "bid(%i) tid(%i): output! %i\n", blockIdx.x, threadIdx.x, static_cast<uint32_t>(state.idx));
       outputs.record_offsets.emit<output_enabled>(state.idx);
     }
 
@@ -267,29 +261,27 @@ struct csv_fsm_scan_op {
 };
 
 struct csv_fsm_join_op {
-  inline __host__ __device__ csv_machine_state operator()(csv_machine_state lhs,
-                                                          csv_machine_state rhs)  //
+  inline __host__ __device__ csv_machine_state operator()(  //
+    csv_machine_state lhs,
+    csv_machine_state rhs)
   {
-    // the rhs states must be a subset of the lhs states.
-    // we use binary-and to eliminate erroneous states.
-    // the result of this function is the "real" rhs state.
-    return lhs + rhs;
+    return lhs & rhs;
   }
 };
 
 rmm::device_uvector<uint32_t> csv_gather_row_offsets(
   device_span<char> csv_input,
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource(),
-  cudaStream_t stream                 = 0)
+  cudaStream_t stream                 = 0,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
 {
   auto seed_op = csv_fsm_seed_op{};
   auto scan_op = csv_fsm_scan_op{};
   auto join_op = csv_fsm_join_op{};
 
-  rmm::device_buffer temp_memory;
-
   auto d_output_state = rmm::device_scalar<csv_machine_state>(stream, mr);
   auto d_output       = rmm::device_scalar<csv_fsm_outputs>(stream, mr);
+
+  rmm::device_buffer temp_memory;
 
   temp_memory = scan_artifacts(std::move(temp_memory),
                                csv_input.begin(),

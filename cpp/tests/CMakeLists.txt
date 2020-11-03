@@ -326,6 +326,8 @@ ConfigureTest(DECOMPRESSION_TEST "${DECOMPRESSION_TEST_SRC}")
 
 set(CSV_TEST_SRC
     "${CMAKE_CURRENT_SOURCE_DIR}/io/csv_test.cpp")
+set(CSV_TEST_NEW_SRC
+    "${CMAKE_CURRENT_SOURCE_DIR}/io/csv_test_new.cu")
 set(ORC_TEST_SRC
     "${CMAKE_CURRENT_SOURCE_DIR}/io/orc_test.cpp")
 set(PARQUET_TEST_SRC
@@ -334,6 +336,7 @@ set(JSON_TEST_SRC
     "${CMAKE_CURRENT_SOURCE_DIR}/io/json_test.cpp")
 
 ConfigureTest(CSV_TEST "${CSV_TEST_SRC}")
+ConfigureTest(CSV_TEST_NEW "${CSV_TEST_NEW_SRC}")
 ConfigureTest(ORC_TEST "${ORC_TEST_SRC}")
 ConfigureTest(PARQUET_TEST "${PARQUET_TEST_SRC}")
 ConfigureTest(JSON_TEST "${JSON_TEST_SRC}")
