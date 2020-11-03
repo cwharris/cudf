@@ -3,10 +3,9 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/cudf_gtest.hpp>
 
-#include <cudf/algorithm/csv_gpu_row_count.cuh>
+#include <cudf/algorithm/csv_gpu_row_count.hpp>
 #include <cudf/algorithm/scan_artifacts.cuh>
 #include <cudf/utilities/span.hpp>
-#include "gtest/gtest.h"
 #include "rmm/device_buffer.hpp"
 #include "rmm/device_scalar.hpp"
 #include "rmm/device_uvector.hpp"
@@ -24,14 +23,6 @@ struct simple_output {
 
   inline __device__ simple_output operator+(simple_output other) const
   {
-    // printf("bid(%i) tid(%i): simple_output (%i %i) + (%i %i)\n",  //
-    //        blockIdx.x,
-    //        threadIdx.x,
-    //        a.output_count,
-    //        b.output_count,
-    //        other.a.output_count,
-    //        other.b.output_count);
-
     return {
       a + other.a,
       b + other.b,
@@ -43,12 +34,6 @@ struct simple_state {
   uint32_t sum;
   inline __device__ simple_state operator+(simple_state other) const
   {
-    // printf("bid(%i) tid(%i): simple_state %i + %i\n",  //
-    //        blockIdx.x,
-    //        threadIdx.x,
-    //        sum,
-    //        other.sum);
-
     return {
       sum + other.sum,
     };
@@ -58,12 +43,6 @@ struct simple_state {
 struct simple_state_seed_op {
   inline __device__ simple_state operator()(uint32_t idx, uint32_t input)  //
   {
-    // printf("bid(%i) tid(%i): simple_state_seed_op %i + %i\n",  //
-    //        blockIdx.x,
-    //        threadIdx.x,
-    //        idx,
-    //        input);
-
     return {};
   }
 };
@@ -75,14 +54,6 @@ struct simple_state_step_op {
     simple_state prev_state,
     uint32_t rhs)
   {
-    // printf("bid(%i) tid(%i): simple_state_step_op (%i, %i), %i, %i\n",  //
-    //        blockIdx.x,
-    //        threadIdx.x,
-    //        outputs.a.output_count,
-    //        outputs.b.output_count,
-    //        prev_state.sum,
-    //        rhs);
-
     auto state = simple_state{
       prev_state.sum + rhs,
     };
@@ -97,12 +68,6 @@ struct simple_state_step_op {
 struct simple_state_join_op {
   inline __device__ simple_state operator()(simple_state lhs, simple_state rhs)  //
   {
-    // printf("bid(%i) tid(%i): simple_state_step_op %i => %i\n",  //
-    //        blockIdx.x,
-    //        threadIdx.x,
-    //        lhs.sum,
-    //        rhs.sum);
-
     return lhs + rhs;
   }
 };

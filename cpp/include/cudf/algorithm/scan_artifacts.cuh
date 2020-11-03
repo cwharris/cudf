@@ -32,11 +32,11 @@ struct fsm_output {
   inline __device__ void emit(T value)
   {
     if (output_enabled) {
-      printf("bid(%i) tid(%i): output %i = %i\n",  //
-             blockIdx.x,
-             threadIdx.x,
-             output_count,
-             value);
+      // printf("bid(%i) tid(%i): output %i = %i\n",  //
+      //        blockIdx.x,
+      //        threadIdx.x,
+      //        output_count,
+      //        value);
       output_buffer[output_count++] = value;
     } else {
       output_count++;
@@ -76,10 +76,10 @@ struct agent {
       auto state = consume_tile<true>(tile_idx, tile_offset, num_items_remaining);
 
       if (threadIdx.x == 0) {
-        printf("bid(%i) tid(%i): ===== final outputs =====\n", blockIdx.x, threadIdx.x);
+        // printf("bid(%i) tid(%i): ===== final outputs =====\n", blockIdx.x, threadIdx.x);
         *d_output_state = state.first;
         *d_output       = state.second;
-        printf("bid(%i) tid(%i): ===== final outputs - end =====\n", blockIdx.x, threadIdx.x);
+        // printf("bid(%i) tid(%i): ===== final outputs - end =====\n", blockIdx.x, threadIdx.x);
       }
     }
   }
@@ -102,9 +102,9 @@ struct agent {
       };
     } temp_storage;
 
-    if (threadIdx.x == 0) {  //
-      printf("bid(%i) tid(%i): ===== 0 =====\n", blockIdx.x, threadIdx.x);
-    }
+    // if (threadIdx.x == 0) {  //
+    //   printf("bid(%i) tid(%i): ===== 0 =====\n", blockIdx.x, threadIdx.x);
+    // }
 
     uint32_t const thread_offset = threadIdx.x * Policy::ITEMS_PER_THREAD;
 
@@ -120,9 +120,9 @@ struct agent {
         .Load(d_input + tile_offset, items);
     }
 
-    if (threadIdx.x == 0) {  //
-      printf("bid(%i) tid(%i): ===== 1 =====\n", blockIdx.x, threadIdx.x);
-    }
+    // if (threadIdx.x == 0) {  //
+    //   printf("bid(%i) tid(%i): ===== 1 =====\n", blockIdx.x, threadIdx.x);
+    // }
 
     __syncthreads();
 
@@ -133,18 +133,18 @@ struct agent {
     auto thread_state             = thread_state_seed;
     auto thread_output            = thread_output_seed;
 
-    if (thread_offset < num_items_remaining) {
-      printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
-             blockIdx.x,
-             threadIdx.x,
-             thread_state.sum,
-             thread_output.a.output_count,
-             thread_output.b.output_count);
-    }
+    // if (thread_offset < num_items_remaining) {
+    //   printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
+    //          blockIdx.x,
+    //          threadIdx.x,
+    //          thread_state.sum,
+    //          thread_output.a.output_count,
+    //          thread_output.b.output_count);
+    // }
 
-    if (threadIdx.x == 0) {  //
-      printf("bid(%i) tid(%i): ===== 1 and halvfe =====\n", blockIdx.x, threadIdx.x);
-    }
+    // if (threadIdx.x == 0) {  //
+    //   printf("bid(%i) tid(%i): ===== 1 and halvfe =====\n", blockIdx.x, threadIdx.x);
+    // }
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
@@ -152,27 +152,28 @@ struct agent {
       };
     };
 
-    if (threadIdx.x == 0) {  //
-      printf("bid(%i) tid(%i): ===== 2 =====\n", blockIdx.x, threadIdx.x);
-    }
+    // if (threadIdx.x == 0) {  //
+    //   printf("bid(%i) tid(%i): ===== 2 =====\n", blockIdx.x, threadIdx.x);
+    // }
 
     __syncthreads();
 
-    if (thread_offset < num_items_remaining) {
-      printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
-             blockIdx.x,
-             threadIdx.x,
-             thread_state.sum,
-             thread_output.a.output_count,
-             thread_output.b.output_count);
-    }
+    // if (thread_offset < num_items_remaining) {
+    //   printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
+    //          blockIdx.x,
+    //          threadIdx.x,
+    //          thread_state.sum,
+    //          thread_output.a.output_count,
+    //          thread_output.b.output_count);
+    // }
 
     // Scan Inputs
 
     typename Policy::State block_state;
 
     if (tile_idx == 0) {
-      if (threadIdx.x == 0) { printf("bid(%i) tid(%i): ===== 3 =====\n", blockIdx.x, threadIdx.x); }
+      // if (threadIdx.x == 0) { printf("bid(%i) tid(%i): ===== 3 =====\n", blockIdx.x,
+      // threadIdx.x); }
 
       Policy::StateBlockScan(temp_storage.state_scan)  //
         .ExclusiveScan(                                //
@@ -203,26 +204,26 @@ struct agent {
       block_state = prefix_op.GetInclusivePrefix();
     }
 
-    if (threadIdx.x == 0) {  //
-      printf("bid(%i) tid(%i): ===== 3 =====\n", blockIdx.x, threadIdx.x);
-    }
+    // if (threadIdx.x == 0) {  //
+    //   printf("bid(%i) tid(%i): ===== 3 =====\n", blockIdx.x, threadIdx.x);
+    // }
 
     __syncthreads();
-    if (thread_offset < num_items_remaining) {
-      printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
-             blockIdx.x,
-             threadIdx.x,
-             thread_state.sum,
-             thread_output.a.output_count,
-             thread_output.b.output_count);
-    }
+    // if (thread_offset < num_items_remaining) {
+    //   printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
+    //          blockIdx.x,
+    //          threadIdx.x,
+    //          thread_state.sum,
+    //          thread_output.a.output_count,
+    //          thread_output.b.output_count);
+    // }
 
-    if (threadIdx.x == 0) {                                     //
-      printf("bid(%i) tid(%i): block: state (%i) out (x x)\n",  //
-             blockIdx.x,
-             threadIdx.x,
-             block_state.sum);
-    }
+    // if (threadIdx.x == 0) {                                     //
+    //   printf("bid(%i) tid(%i): block: state (%i) out (x x)\n",  //
+    //          blockIdx.x,
+    //          threadIdx.x,
+    //          block_state.sum);
+    // }
 
     // Count Outputs
 
@@ -235,26 +236,26 @@ struct agent {
       }
     }
 
-    if (threadIdx.x == 0) {  //
-      printf("bid(%i) tid(%i): ===== 4 =====\n", blockIdx.x, threadIdx.x);
-    }
+    // if (threadIdx.x == 0) {  //
+    //   printf("bid(%i) tid(%i): ===== 4 =====\n", blockIdx.x, threadIdx.x);
+    // }
 
-    __syncthreads();
-    if (thread_offset < num_items_remaining) {
-      printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
-             blockIdx.x,
-             threadIdx.x,
-             thread_state.sum,
-             thread_output.a.output_count,
-             thread_output.b.output_count);
-    }
+    // __syncthreads();
+    // if (thread_offset < num_items_remaining) {
+    //   printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
+    //          blockIdx.x,
+    //          threadIdx.x,
+    //          thread_state.sum,
+    //          thread_output.a.output_count,
+    //          thread_output.b.output_count);
+    // }
 
-    if (threadIdx.x == 0) {                                     //
-      printf("bid(%i) tid(%i): block: state (%i) out (x x)\n",  //
-             blockIdx.x,
-             threadIdx.x,
-             block_state.sum);
-    }
+    // if (threadIdx.x == 0) {                                     //
+    //   printf("bid(%i) tid(%i): block: state (%i) out (x x)\n",  //
+    //          blockIdx.x,
+    //          threadIdx.x,
+    //          block_state.sum);
+    // }
 
     typename Policy::Output block_output;
 
@@ -291,28 +292,28 @@ struct agent {
 
     thread_state = thread_state_seed;
 
-    if (threadIdx.x == 0) {  //
-      printf("bid(%i) tid(%i): ===== 5 =====\n", blockIdx.x, threadIdx.x);
-    }
+    // if (threadIdx.x == 0) {  //
+    //   printf("bid(%i) tid(%i): ===== 5 =====\n", blockIdx.x, threadIdx.x);
+    // }
 
-    __syncthreads();
-    if (thread_offset < num_items_remaining) {
-      printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
-             blockIdx.x,
-             threadIdx.x,
-             thread_state.sum,
-             thread_output.a.output_count,
-             thread_output.b.output_count);
-    }
+    // __syncthreads();
+    // if (thread_offset < num_items_remaining) {
+    //   printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
+    //          blockIdx.x,
+    //          threadIdx.x,
+    //          thread_state.sum,
+    //          thread_output.a.output_count,
+    //          thread_output.b.output_count);
+    // }
 
-    if (threadIdx.x == 0) {                                       //
-      printf("bid(%i) tid(%i): block: state (%i) out (%i %i)\n",  //
-             blockIdx.x,
-             threadIdx.x,
-             block_state.sum,
-             block_output.a.output_count,
-             block_output.b.output_count);
-    }
+    // if (threadIdx.x == 0) {                                       //
+    //   printf("bid(%i) tid(%i): block: state (%i) out (%i %i)\n",  //
+    //          blockIdx.x,
+    //          threadIdx.x,
+    //          block_state.sum,
+    //          block_output.a.output_count,
+    //          block_output.b.output_count);
+    // }
 
     // Collect Outputs
 
@@ -326,9 +327,9 @@ struct agent {
       }
     }
 
-    if (threadIdx.x == 0) {  //
-      printf("bid(%i) tid(%i): ===== 6 =====\n", blockIdx.x, threadIdx.x);
-    }
+    // if (threadIdx.x == 0) {  //
+    //   printf("bid(%i) tid(%i): ===== 6 =====\n", blockIdx.x, threadIdx.x);
+    // }
 
     return {block_state, block_output};  // also need to output block_output
   }
