@@ -75,13 +75,13 @@ struct simple_state_step_op {
     simple_state prev_state,
     uint32_t rhs)
   {
-    printf("bid(%i) tid(%i): simple_state_step_op (%i, %i), %i, %i\n",  //
-           blockIdx.x,
-           threadIdx.x,
-           outputs.a.output_count,
-           outputs.b.output_count,
-           prev_state.sum,
-           rhs);
+    // printf("bid(%i) tid(%i): simple_state_step_op (%i, %i), %i, %i\n",  //
+    //        blockIdx.x,
+    //        threadIdx.x,
+    //        outputs.a.output_count,
+    //        outputs.b.output_count,
+    //        prev_state.sum,
+    //        rhs);
 
     auto state = simple_state{
       prev_state.sum + rhs,
@@ -115,7 +115,7 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   auto step_op = simple_state_step_op{};
   auto join_op = simple_state_join_op{};
 
-  const uint32_t input_size             = (1 << 5) + 4;
+  const uint32_t input_size             = (1 << 15) + 4;
   const uint32_t expected_output_size_a = input_size / 3;
   const uint32_t expected_output_size_b = input_size / 2;
 
@@ -179,7 +179,7 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   ASSERT_EQ(output_b.data(), h_output.b.output_buffer);
 
   auto h_output_a = std::vector<uint32_t>(h_output.a.output_count);
-  auto h_output_b = std::vector<double>(h_output.a.output_count);
+  auto h_output_b = std::vector<double>(h_output.b.output_count);
 
   cudaMemcpy(h_output_a.data(),
              h_output.a.output_buffer,
