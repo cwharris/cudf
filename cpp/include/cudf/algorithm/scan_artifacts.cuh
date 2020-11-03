@@ -391,7 +391,7 @@ template <typename InputIterator_,
 struct policy {
   static constexpr uint32_t THREADS_PER_INIT_BLOCK = 128;
   static constexpr uint32_t THREADS_PER_BLOCK      = 32;
-  static constexpr uint32_t ITEMS_PER_THREAD       = 32;
+  static constexpr uint32_t ITEMS_PER_THREAD       = 2;
   static constexpr uint32_t ITEMS_PER_TILE         = ITEMS_PER_THREAD * THREADS_PER_BLOCK;
 
   using InputIterator       = InputIterator_;

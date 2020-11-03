@@ -3,7 +3,7 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/cudf_gtest.hpp>
 
-#include <cudf/algorithm/csv_gpu_row_count.hpp>
+#include <cudf/algorithm/csv_gpu_row_count.cuh>
 #include <cudf/algorithm/scan_artifacts.cuh>
 #include <cudf/utilities/span.hpp>
 #include "rmm/device_buffer.hpp"
@@ -167,35 +167,43 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
 
 TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates)
 {
-  // auto input = std::string("hello, world");
+  auto input = std::string(
+    "hello, world\n"
+    "and,\"not\nh,ing\"\n"
+    "new\n"
+    "hello, world\n"
+    "and,\"not\nh,ing\"\n"
+    "new\n"
+    "hello, world\n"
+    "and,\"not\nh,ing\"\n"
+    "new\n");
 
-  // auto d_input = rmm::device_vector<char>(input.c_str(), input.c_str() + input.size());
+  auto d_input = rmm::device_vector<char>(input.c_str(), input.c_str() + input.size());
 
-  // auto d_row_offsets = csv_gather_row_offsets(d_input);
+  auto d_row_offsets = cudf::io::detail::csv_gather_row_offsets(d_input);
 
-  // thrust::host_vector<uint32_t> h_row_offsets(d_row_offsets.size());
+  ASSERT_EQ(static_cast<uint32_t>(9), d_row_offsets.size());
 
-  // cudaMemcpy(h_row_offsets.data(),  //
-  //            d_row_offsets.data(),
-  //            d_row_offsets.size() * sizeof(char),
-  //            cudaMemcpyDeviceToHost);
+  auto h_row_offsets = std::vector<uint32_t>(d_row_offsets.size());
 
-  // ASSERT_EQ(static_cast<uint32_t>(0), h_row_offsets.size());
+  cudaStreamSynchronize(0);
 
-  // auto d_result = scan_artifacts<uint32_t>(d_input.begin(),  //
-  //                                          d_input.end(),
-  //                                          seed_op,
-  //                                          scan_op,
-  //                                          intersect_op);
+  cudaMemcpy(h_row_offsets.data(),  //
+             d_row_offsets.data(),
+             d_row_offsets.size() * sizeof(uint32_t),
+             cudaMemcpyDeviceToHost);
 
-  // thrust::host_vector<uint32_t> h_result(d_result.size());
-  // cudaMemcpy(
-  //   h_result.data(), d_result.data(), sizeof(uint32_t) * d_result.size(),
-  //   cudaMemcpyDeviceToHost);
+  EXPECT_EQ(static_cast<uint32_t>(0), h_row_offsets[0]);
+  EXPECT_EQ(static_cast<uint32_t>(13), h_row_offsets[1]);
+  EXPECT_EQ(static_cast<uint32_t>(29), h_row_offsets[2]);
 
-  // for (uint32_t i = 0; i < h_result.size(); i++) {  //
-  //   ASSERT_EQ(static_cast<uint32_t>((i / 2) * 3 + 3), h_result[i]);
-  // }
+  EXPECT_EQ(static_cast<uint32_t>(33), h_row_offsets[3]);
+  EXPECT_EQ(static_cast<uint32_t>(46), h_row_offsets[4]);
+  EXPECT_EQ(static_cast<uint32_t>(62), h_row_offsets[5]);
+
+  EXPECT_EQ(static_cast<uint32_t>(66), h_row_offsets[6]);
+  EXPECT_EQ(static_cast<uint32_t>(79), h_row_offsets[7]);
+  EXPECT_EQ(static_cast<uint32_t>(95), h_row_offsets[8]);
 }
 
 CUDF_TEST_PROGRAM_MAIN()

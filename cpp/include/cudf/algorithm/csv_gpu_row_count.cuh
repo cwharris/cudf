@@ -19,33 +19,21 @@ namespace detail {
 // ===== STATES AND TOKENS =====
 
 enum class csv_token : uint8_t {
-  comment   = 0b00000001,
-  delimiter = 0b00000010,
-  quote     = 0b00000100,
-  newline   = 0b00001000,
-  other     = 0b00010000,
+  comment = 1,
+  delimiter,
+  quote,
+  newline,
+  other,
 };
 
 enum class csv_state : uint8_t {
-  none               = 0b00000000,
-  record_end         = 0b00000001,
-  comment            = 0b00000010,
-  field              = 0b00000100,
-  field_quoted       = 0b00001000,
-  field_quoted_quote = 0b00010000,
-  field_end          = 0b00100000,
-  end                = 0b01000000,
-};
-
-constexpr csv_state csv_state_loop_values[] = {
-  csv_state::none,
-  csv_state::record_end,
-  csv_state::comment,
-  csv_state::field,
-  csv_state::field_quoted,
-  csv_state::field_quoted_quote,
-  csv_state::field_end,
-  csv_state::end,
+  none = 0,
+  record_end,
+  comment,
+  field,
+  field_quoted,
+  field_quoted_quote,
+  field_end,
 };
 
 constexpr csv_state operator|(csv_state lhs, csv_state rhs)
@@ -90,8 +78,19 @@ TRANSITION(record_end, comment, csv_state::comment);
 TRANSITION(record_end, other, csv_state::field);
 TRANSITION(field, other, csv_state::field);
 TRANSITION(field, delimiter, csv_state::field_end);
+TRANSITION(field, newline, csv_state::record_end);
 TRANSITION(field_end, other, csv_state::field);
 TRANSITION(field_end, newline, csv_state::record_end);
+TRANSITION(field_end, quote, csv_state::field_quoted);
+TRANSITION(record_end, quote, csv_state::field_quoted);
+TRANSITION(field_quoted, quote, csv_state::field_quoted_quote);
+TRANSITION(field_quoted, other, csv_state::field_quoted);
+TRANSITION(field_quoted, newline, csv_state::field_quoted);
+TRANSITION(field_quoted, delimiter, csv_state::field_quoted);
+TRANSITION(field_quoted, comment, csv_state::field_quoted);
+TRANSITION(field_quoted_quote, quote, csv_state::field_quoted);
+TRANSITION(field_quoted_quote, delimiter, csv_state::field_end);
+TRANSITION(field_quoted_quote, newline, csv_state::record_end);
 
 // ===== DISPATCH =====
 
@@ -137,8 +136,6 @@ inline constexpr csv_state get_next_state(csv_state state, csv_token token)
       return get_next_state<csv_state::field>(token);
     case (csv_state::none):  //
       return csv_state::none;
-    case (csv_state::end):  //
-      return csv_state::none;
   }
 
   return csv_state::none;
@@ -181,6 +178,8 @@ struct csv_machine_state {
   inline __host__ __device__ csv_machine_state get_next(csv_token const& token)
   {
     csv_machine_state result;
+
+    result.idx = idx + 1;
 
     for (auto i = 0; i < num_states; i++) {
       auto const ancestor   = states[i].first;
@@ -229,13 +228,11 @@ struct csv_fsm_seed_op {
       idx,
       8,
       {
+        {csv_state::record_end, csv_state::record_end},
         {csv_state::comment, csv_state::comment},
-        {csv_state::end, csv_state::end},
         {csv_state::field, csv_state::field},
         {csv_state::field_quoted, csv_state::field_quoted},
         {csv_state::field_quoted_quote, csv_state::field_quoted_quote},
-        {csv_state::comment, csv_state::comment},
-        {csv_state::record_end, csv_state::record_end},
         {csv_state::field_end, csv_state::field_end},
       },
     };
@@ -251,11 +248,21 @@ struct csv_fsm_scan_op {
     auto token      = get_token(0, current_char);
     auto next_state = state.get_next(token);
 
-    if (state.includes(csv_state::record_end)) {
+    if (output_enabled) {
+      printf("bid(%i) tid(%i): %i %i\n",
+             blockIdx.x,
+             threadIdx.x,
+             static_cast<uint32_t>(next_state.num_states),
+             static_cast<uint32_t>(next_state.states[0].second));
+    }
+
+    if (state.includes(csv_state::record_end) and next_state.includes(csv_state::field)) {
+      printf(
+        "bid(%i) tid(%i): output! %i\n", blockIdx.x, threadIdx.x, static_cast<uint32_t>(state.idx));
       outputs.record_offsets.emit<output_enabled>(state.idx);
     }
 
-    return state;
+    return next_state;
   }
 };
 
@@ -291,7 +298,8 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
                                d_output.data(),
                                seed_op,
                                scan_op,
-                               join_op);
+                               join_op,
+                               stream);
 
   auto h_output = d_output.value(stream);
   // auto h_output_state = d_output.value(stream);
@@ -311,7 +319,8 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
                                d_output.data(),
                                seed_op,
                                scan_op,
-                               join_op);
+                               join_op,
+                               stream);
 
   return d_record_offsets;
 }
