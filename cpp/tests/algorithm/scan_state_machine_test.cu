@@ -90,8 +90,8 @@ TEST_F(ScanStateMachineTest, CanScanSimpleState)
   auto join_op   = simple_join_op{};
   auto output_op = simple_output_op{};
 
-  const uint32_t input_size             = (1 << 10) + 4;
-  const uint32_t expected_output_size_a = input_size / 3 + 1;
+  const uint32_t input_size             = (1 << 15) + 4;
+  const uint32_t expected_output_size_a = input_size / 3;
   const uint32_t expected_output_size_b = input_size / 2;
 
   thrust::device_vector<uint32_t> d_input(input, input + input_size);
