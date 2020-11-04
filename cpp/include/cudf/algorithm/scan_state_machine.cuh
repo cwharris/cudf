@@ -335,8 +335,7 @@ struct agent {
   }
 };
 
-// ===== Kernels
-// ===================================================================================
+// ===== Kernels ===================================================================================
 
 template <typename Policy>
 __global__ void initialization_pass_kernel(  //
@@ -379,8 +378,7 @@ __global__ void execution_pass_kernel(  //
   agent_instance.consume_range(num_tiles, start_tile);
 }
 
-// ===== Policy
-// ====================================================================================
+// ===== Policy ====================================================================================
 
 template <typename InputIterator_,
           typename OutputStateIterator_,
@@ -435,8 +433,7 @@ struct policy {
     cub::BlockScanAlgorithm::BLOCK_SCAN_RAKING>;
 };
 
-// ===== Entry
-// =====================================================================================
+// ===== Entry =====================================================================================
 
 template <typename InputIterator,
           typename OutputStateIterator,
@@ -444,8 +441,8 @@ template <typename InputIterator,
           typename SeedOp,
           typename StepOp,
           typename JoinOp>
-rmm::device_buffer scan_state_machine(  //
-  rmm::device_buffer&& temp_storage,
+void scan_state_machine(  //
+  rmm::device_buffer& temp_storage,
   InputIterator d_in_begin,
   InputIterator d_in_end,
   OutputStateIterator d_output_state,
@@ -493,6 +490,7 @@ rmm::device_buffer scan_state_machine(  //
   CUDA_TRY(state_tile_state.Init(num_tiles, allocations[0], allocation_sizes[0]));
   CUDA_TRY(output_tile_state.Init(num_tiles, allocations[1], allocation_sizes[1]));
 
+  // // ideal we could avoid the upsweep by relying on prior results
   // if (is_first_pass) {
   uint32_t num_init_blocks = ceil_div(num_tiles, Policy::THREADS_PER_INIT_BLOCK);
 
@@ -528,6 +526,4 @@ rmm::device_buffer scan_state_machine(  //
 
     CHECK_CUDA(stream);
   }
-
-  return temp_storage;
 }

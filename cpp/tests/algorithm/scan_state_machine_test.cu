@@ -92,14 +92,14 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   rmm::device_buffer temp_storage;
 
   // phase 1: count outputs.
-  temp_storage = scan_state_machine(std::move(temp_storage),  //
-                                    d_input.begin(),
-                                    d_input.end(),
-                                    d_output_state.data(),
-                                    d_output.data(),
-                                    seed_op,
-                                    step_op,
-                                    join_op);
+  scan_state_machine(temp_storage,  //
+                     d_input.begin(),
+                     d_input.end(),
+                     d_output_state.data(),
+                     d_output.data(),
+                     seed_op,
+                     step_op,
+                     join_op);
 
   auto h_output       = d_output.value();
   auto h_output_state = d_output_state.value();
@@ -122,14 +122,14 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
   d_output.set_value(h_output);
   d_output_state.set_value({});
 
-  temp_storage = scan_state_machine(std::move(temp_storage),  //
-                                    d_input.begin(),
-                                    d_input.end(),
-                                    d_output_state.data(),
-                                    d_output.data(),
-                                    seed_op,
-                                    step_op,
-                                    join_op);
+  scan_state_machine(temp_storage,  //
+                     d_input.begin(),
+                     d_input.end(),
+                     d_output_state.data(),
+                     d_output.data(),
+                     seed_op,
+                     step_op,
+                     join_op);
 
   h_output       = d_output.value();
   h_output_state = d_output_state.value();

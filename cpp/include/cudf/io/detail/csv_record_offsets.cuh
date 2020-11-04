@@ -278,20 +278,20 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
   auto scan_op = csv_fsm_scan_op{};
   auto join_op = csv_fsm_join_op{};
 
-  auto d_output_state = rmm::device_scalar<csv_machine_state>(stream, mr);
-  auto d_output       = rmm::device_scalar<csv_fsm_outputs>(stream, mr);
+  auto d_output_state = rmm::device_scalar<csv_machine_state>(csv_machine_state{}, stream, mr);
+  auto d_output       = rmm::device_scalar<csv_fsm_outputs>(csv_fsm_outputs{}, stream, mr);
 
   rmm::device_buffer temp_memory;
 
-  temp_memory = scan_state_machine(std::move(temp_memory),
-                                   csv_input.begin(),
-                                   csv_input.end(),
-                                   d_output_state.data(),
-                                   d_output.data(),
-                                   seed_op,
-                                   scan_op,
-                                   join_op,
-                                   stream);
+  scan_state_machine(temp_memory,
+                     csv_input.begin(),
+                     csv_input.end(),
+                     d_output_state.data(),
+                     d_output.data(),
+                     seed_op,
+                     scan_op,
+                     join_op,
+                     stream);
 
   auto h_output = d_output.value(stream);
   // auto h_output_state = d_output.value(stream);
@@ -304,15 +304,15 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
 
   d_output.set_value(h_output, stream);
 
-  temp_memory = scan_state_machine(std::move(temp_memory),
-                                   csv_input.begin(),
-                                   csv_input.end(),
-                                   d_output_state.data(),
-                                   d_output.data(),
-                                   seed_op,
-                                   scan_op,
-                                   join_op,
-                                   stream);
+  scan_state_machine(temp_memory,
+                     csv_input.begin(),
+                     csv_input.end(),
+                     d_output_state.data(),
+                     d_output.data(),
+                     seed_op,
+                     scan_op,
+                     join_op,
+                     stream);
 
   return d_record_offsets;
 }
