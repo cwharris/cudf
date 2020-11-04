@@ -283,15 +283,15 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
 
   rmm::device_buffer temp_memory;
 
-  temp_memory = scan_artifacts(std::move(temp_memory),
-                               csv_input.begin(),
-                               csv_input.end(),
-                               d_output_state.data(),
-                               d_output.data(),
-                               seed_op,
-                               scan_op,
-                               join_op,
-                               stream);
+  temp_memory = scan_state_machine(std::move(temp_memory),
+                                   csv_input.begin(),
+                                   csv_input.end(),
+                                   d_output_state.data(),
+                                   d_output.data(),
+                                   seed_op,
+                                   scan_op,
+                                   join_op,
+                                   stream);
 
   auto h_output = d_output.value(stream);
   // auto h_output_state = d_output.value(stream);
@@ -304,15 +304,15 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
 
   d_output.set_value(h_output, stream);
 
-  temp_memory = scan_artifacts(std::move(temp_memory),
-                               csv_input.begin(),
-                               csv_input.end(),
-                               d_output_state.data(),
-                               d_output.data(),
-                               seed_op,
-                               scan_op,
-                               join_op,
-                               stream);
+  temp_memory = scan_state_machine(std::move(temp_memory),
+                                   csv_input.begin(),
+                                   csv_input.end(),
+                                   d_output_state.data(),
+                                   d_output.data(),
+                                   seed_op,
+                                   scan_op,
+                                   join_op,
+                                   stream);
 
   return d_record_offsets;
 }

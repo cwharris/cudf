@@ -73,12 +73,12 @@ set(GATHER_BENCH_SRC
 ConfigureBench(GATHER_BENCH "${GATHER_BENCH_SRC}")
 
 ###################################################################################################
-# - scan_artifacts benchmark ----------------------------------------------------------------------
+# - scan_state_machine benchmark ------------------------------------------------------------------
 
-set(SCAN_ARTIFACTS_BENCH_SRC
-  "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/scan_artifacts_benchmark.cu")
+set(SCAN_STATE_MACHINE_BENCH_SRC
+  "${CMAKE_CURRENT_SOURCE_DIR}/algorithm/scan_state_machine_benchmark.cu")
 
-ConfigureBench(SCAN_ARTIFACTS_BENCH "${SCAN_ARTIFACTS_BENCH_SRC}")
+ConfigureBench(SCAN_STATE_MACHINE_BENCH "${SCAN_STATE_MACHINE_BENCH_SRC}")
 
 ###################################################################################################
 # - scatter benchmark -----------------------------------------------------------------------------

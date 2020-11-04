@@ -45,7 +45,7 @@ struct simple_intersection_op {
   inline __device__ T operator()(T lhs, T rhs) { return lhs + rhs; }
 };
 
-static void BM_scan_artifacts(benchmark::State& state)
+static void BM_scan_state_machines(benchmark::State& state)
 {
   // using T = uint64_t;
 
@@ -60,7 +60,7 @@ static void BM_scan_artifacts(benchmark::State& state)
 
   // for (auto _ : state) {
   //   cuda_event_timer raii(state, true);
-  //   auto d_result = scan_artifacts<T>(d_input.begin(),  //
+  //   auto d_result = scan_state_machines<T>(d_input.begin(),  //
   //                                     d_input.end(),
   //                                     seed_op,
   //                                     scan_op,
@@ -70,17 +70,17 @@ static void BM_scan_artifacts(benchmark::State& state)
   // state.SetBytesProcessed(state.iterations() * input_size * sizeof(T));
 }
 
-class ScanArtifactsBenchmark : public cudf::benchmark {
+class ScanStateMachineBenchmark : public cudf::benchmark {
 };
 
-#define DUMMY_BM_BENCHMARK_DEFINE(name)                                        \
-  BENCHMARK_DEFINE_F(ScanArtifactsBenchmark, name)(::benchmark::State & state) \
-  {                                                                            \
-    BM_scan_artifacts(state);                                                  \
-  }                                                                            \
-  BENCHMARK_REGISTER_F(ScanArtifactsBenchmark, name)                           \
-    ->Ranges({{1 << 7, 1 << 30}})                                              \
-    ->UseManualTime()                                                          \
+#define DUMMY_BM_BENCHMARK_DEFINE(name)                                           \
+  BENCHMARK_DEFINE_F(ScanStateMachineBenchmark, name)(::benchmark::State & state) \
+  {                                                                               \
+    BM_scan_state_machines(state);                                                \
+  }                                                                               \
+  BENCHMARK_REGISTER_F(ScanStateMachineBenchmark, name)                           \
+    ->Ranges({{1 << 7, 1 << 30}})                                                 \
+    ->UseManualTime()                                                             \
     ->Unit(benchmark::kMillisecond);
 
-DUMMY_BM_BENCHMARK_DEFINE(scan_artifacts);
+DUMMY_BM_BENCHMARK_DEFINE(scan_state_machines);

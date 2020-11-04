@@ -344,10 +344,10 @@ ConfigureTest(JSON_TEST "${JSON_TEST_SRC}")
 ###################################################################################################
 # - inclusive_copy_if tests -----------------------------------------------------------------------
 
-set(SCAN_ARTIFACTS_TEST_SRC
-"${CMAKE_CURRENT_SOURCE_DIR}/algorithm/scan_artifacts_test.cu")
+set(SCAN_STATE_MACHINE_TEST_SRC
+"${CMAKE_CURRENT_SOURCE_DIR}/algorithm/scan_state_machine_test.cu")
 
-ConfigureTest(SCAN_ARTIFACTS_TEST "${SCAN_ARTIFACTS_TEST_SRC}")
+ConfigureTest(SCAN_STATE_MACHINE_TEST "${SCAN_STATE_MACHINE_TEST_SRC}")
 
 ###################################################################################################
 # - sort tests ------------------------------------------------------------------------------------

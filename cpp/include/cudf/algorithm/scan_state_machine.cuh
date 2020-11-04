@@ -444,7 +444,7 @@ template <typename InputIterator,
           typename SeedOp,
           typename StepOp,
           typename JoinOp>
-rmm::device_buffer scan_artifacts(  //
+rmm::device_buffer scan_state_machine(  //
   rmm::device_buffer&& temp_storage,
   InputIterator d_in_begin,
   InputIterator d_in_end,
