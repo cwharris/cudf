@@ -25,7 +25,7 @@
 #include <io/utilities/parsing_utils.cuh>
 #include <io/utilities/type_conversion.cuh>
 
-#include <cudf/algorithm/csv_gpu_row_count.cuh>
+#include <cudf/io/detail/csv_record_offsets.cuh>
 #include <cudf/io/types.hpp>
 #include <cudf/strings/replace.hpp>
 #include <cudf/table/table.hpp>

@@ -3,8 +3,8 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/cudf_gtest.hpp>
 
-#include <cudf/algorithm/csv_gpu_row_count.cuh>
-#include <cudf/algorithm/scan_artifacts.cuh>
+#include <cudf/algorithm/scan_state_machine.cuh>
+#include <cudf/io/detail/csv_record_offsets.cuh>
 #include <cudf/utilities/span.hpp>
 #include "rmm/device_buffer.hpp"
 #include "rmm/device_scalar.hpp"

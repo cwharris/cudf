@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <type_traits>
 
-#include <cudf/algorithm/scan_artifacts.cuh>
+#include <cudf/algorithm/scan_state_machine.cuh>
 #include <cudf/types.hpp>
 #include <cudf/utilities/span.hpp>
 

@@ -17,7 +17,7 @@
 #include <benchmarks/fixture/benchmark_fixture.hpp>
 #include <benchmarks/synchronization/synchronization.hpp>
 
-#include <cudf/algorithm/scan_artifacts.cuh>
+#include <cudf/algorithm/scan_state_machine.cuh>
 
 #include <thrust/iterator/constant_iterator.h>
 
