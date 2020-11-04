@@ -221,7 +221,7 @@ struct csv_machine_state {
     // the result of this function is the "real" rhs state.
     csv_machine_state result;
 
-    result.position = rhs.position;
+    result.position = position + rhs.position;
 
     for (auto i = 0; i < num_states; i++) {
       for (auto j = 0; j < rhs.num_states; j++) {
@@ -233,12 +233,10 @@ struct csv_machine_state {
 
     return result;
   }
-};  // namespace detail
+};
 
 struct csv_fsm_seed_op {
-  inline constexpr csv_machine_state operator()(  //
-    uint32_t position,
-    char current_char)
+  inline constexpr csv_machine_state operator()(uint32_t position)
   {
     if (position == 0) {  //
       return csv_machine_state(position, csv_state_segment(csv_state::record_end));
@@ -246,7 +244,7 @@ struct csv_fsm_seed_op {
 
     auto result = csv_machine_state();
 
-    result.position   = position;
+    result.position   = 0;
     result.num_states = 6;
     result.states[0]  = csv_state_segment(csv_state::record_end);
     result.states[1]  = csv_state_segment(csv_state::comment);
@@ -257,22 +255,12 @@ struct csv_fsm_seed_op {
 
     return result;
   }
-};  // namespace detail
+};
 
 struct csv_fsm_scan_op {
-  template <bool output_enabled>
-  inline constexpr csv_machine_state operator()(  //
-    csv_fsm_outputs& outputs,
-    csv_machine_state prev,
-    char current_char)
+  inline constexpr csv_machine_state operator()(csv_machine_state prev, char current_char)
   {
-    auto next = prev + get_token(0, current_char);
-
-    if (prev == csv_state::record_end and next == csv_state::field) {
-      outputs.record_offsets.emit<output_enabled>(prev.position);
-    }
-
-    return next;
+    return prev + get_token(0, current_char);
   }
 };
 
@@ -283,14 +271,31 @@ struct csv_fsm_join_op {
   }
 };
 
+struct csv_fsm_output_op {
+  template <bool output_enabled>
+  inline constexpr csv_fsm_outputs operator()(csv_fsm_outputs out,
+                                              csv_machine_state prev,
+                                              csv_machine_state next,
+                                              char current_char)
+  {
+    if (not(prev == csv_state::record_end)) { return out; }
+    if (not(next == csv_state::field)) { return out; }
+
+    out.record_offsets.emit<output_enabled>(prev.position);
+
+    return out;
+  }
+};
+
 rmm::device_uvector<uint32_t> csv_gather_row_offsets(
   device_span<char> csv_input,
   cudaStream_t stream                 = 0,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
 {
-  auto seed_op = csv_fsm_seed_op{};
-  auto scan_op = csv_fsm_scan_op{};
-  auto join_op = csv_fsm_join_op{};
+  auto seed_op   = csv_fsm_seed_op{};
+  auto scan_op   = csv_fsm_scan_op{};
+  auto join_op   = csv_fsm_join_op{};
+  auto output_op = csv_fsm_output_op{};
 
   auto d_output_state = rmm::device_scalar<csv_machine_state>(csv_machine_state{}, stream, mr);
   auto d_output       = rmm::device_scalar<csv_fsm_outputs>(csv_fsm_outputs{}, stream, mr);
@@ -305,6 +310,7 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
                      seed_op,
                      scan_op,
                      join_op,
+                     output_op,
                      stream);
 
   auto h_output = d_output.value(stream);
@@ -326,6 +332,7 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
                      seed_op,
                      scan_op,
                      join_op,
+                     output_op,
                      stream);
 
   return d_record_offsets;

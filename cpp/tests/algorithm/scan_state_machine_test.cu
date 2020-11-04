@@ -14,7 +14,7 @@
 
 #include <thrust/iterator/constant_iterator.h>
 
-class InclusiveCopyIfTest : public cudf::test::BaseFixture {
+class ScanStateMachineTest : public cudf::test::BaseFixture {
 };
 
 struct simple_output {
@@ -38,50 +38,60 @@ struct simple_state {
       sum + other.sum,
     };
   }
-};
 
-struct simple_state_seed_op {
-  inline __device__ simple_state operator()(uint32_t idx, uint32_t input)  //
+  inline __device__ simple_state operator+(uint32_t input) const
   {
-    return {};
-  }
-};
-
-struct simple_state_step_op {
-  template <bool output_enabled>
-  inline __device__ simple_state operator()(  //
-    simple_output& outputs,
-    simple_state prev_state,
-    uint32_t rhs)
-  {
-    auto state = simple_state{
-      prev_state.sum + rhs,
+    return {
+      sum + input,
     };
-
-    if (state.sum % 3 == 0) { outputs.a.emit<output_enabled>(state.sum); }
-    if (state.sum % 2 == 0) { outputs.b.emit<output_enabled>(state.sum * 2.0); }
-
-    return state;
   }
 };
 
-struct simple_state_join_op {
+struct simple_seed_op {
+  inline __device__ simple_state operator()(uint32_t position) { return {}; }
+};
+
+struct simple_step_op {
+  inline __device__ simple_state operator()(simple_state prev_state, uint32_t rhs)
+  {
+    return prev_state + rhs;
+  }
+};
+
+struct simple_output_op {
+  template <bool output_enabled>
+  inline __device__ simple_output
+  operator()(simple_output out, simple_state prev, simple_state next, uint32_t rhs)
+  {
+    if (prev.sum % 3 == 0) { out.a.emit<output_enabled>(prev.sum); }
+    if (prev.sum % 2 == 0) { out.b.emit<output_enabled>(prev.sum * 2.0); }
+
+    return out;
+  }
+
+  // // TODO: add a finalizer
+  // template <typename output_enabled>
+  // simple_output operator()(simple_output out, simple_state final){}
+};
+
+struct simple_join_op {
   inline __device__ simple_state operator()(simple_state lhs, simple_state rhs)  //
   {
     return lhs + rhs;
   }
 };
 
-TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
+TEST_F(ScanStateMachineTest, CanScanSimpleState)
 {
   auto input = thrust::make_constant_iterator<uint32_t>(1);
 
-  auto seed_op = simple_state_seed_op{};
-  auto step_op = simple_state_step_op{};
-  auto join_op = simple_state_join_op{};
+  auto seed_op   = simple_seed_op{};
+  auto step_op   = simple_step_op{};
+  auto join_op   = simple_join_op{};
+  auto output_op = simple_output_op{};
 
-  const uint32_t input_size             = (1 << 15) + 4;
-  const uint32_t expected_output_size_a = input_size / 3;
+  const uint32_t input_size             = (1 << 10) + 4;
+  const uint32_t expected_output_size_a = input_size / 3 + 1;
   const uint32_t expected_output_size_b = input_size / 2;
 
   thrust::device_vector<uint32_t> d_input(input, input + input_size);
@@ -99,7 +109,8 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
                      d_output.data(),
                      seed_op,
                      step_op,
-                     join_op);
+                     join_op,
+                     output_op);
 
   auto h_output       = d_output.value();
   auto h_output_state = d_output_state.value();
@@ -129,7 +140,8 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
                      d_output.data(),
                      seed_op,
                      step_op,
-                     join_op);
+                     join_op,
+                     output_op);
 
   h_output       = d_output.value();
   h_output_state = d_output_state.value();
@@ -157,15 +169,15 @@ TEST_F(InclusiveCopyIfTest, CanScanSelectIf)
              cudaMemcpyDeviceToHost);
 
   for (uint32_t i = 0; i < h_output_a.size(); i++) {
-    ASSERT_EQ(static_cast<uint32_t>(i * 3 + 3), h_output_a[i]);
+    EXPECT_EQ(static_cast<uint32_t>(i * 3), h_output_a[i]);
   }
 
   for (uint32_t i = 0; i < h_output_b.size(); i++) {
-    ASSERT_EQ(static_cast<double>(i * 4.0 + 4), h_output_b[i]);
+    ASSERT_EQ(static_cast<double>(i * 4.0), h_output_b[i]);
   }
 }
 
-TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates)
+TEST_F(ScanStateMachineTest, CanTransitionCsvStates)
 {
   auto input = std::string(
     "hello, world\n"
@@ -206,11 +218,11 @@ TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates)
   EXPECT_EQ(static_cast<uint32_t>(95), h_row_offsets[8]);
 }
 
-TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates2)
+TEST_F(ScanStateMachineTest, CanTransitionCsvStates2)
 {
   using namespace cudf::io::detail;
   auto a = csv_machine_state(5, csv_state::record_end);
-  auto b = csv_machine_state(7, csv_state::record_end);
+  auto b = csv_machine_state(2, csv_state::record_end);
 
   auto result = a & b;
 
@@ -220,16 +232,16 @@ TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates2)
   EXPECT_EQ(csv_state::record_end, result.states[0].tail);
 }
 
-TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates3)
+TEST_F(ScanStateMachineTest, CanTransitionCsvStates3)
 {
   using namespace cudf::io::detail;
-  auto a = csv_machine_state(5, csv_state_segment(csv_state::record_end, csv_state::field));
-  auto b = csv_machine_state(7, csv_state_segment(csv_state::field, csv_state::field_end));
+  auto a = csv_machine_state(4, csv_state_segment(csv_state::record_end, csv_state::field));
+  auto b = csv_machine_state(8, csv_state_segment(csv_state::field, csv_state::field_end));
 
   auto result = a & b;
 
   ASSERT_EQ(static_cast<uint32_t>(1), result.num_states);
-  EXPECT_EQ(static_cast<uint32_t>(7), result.position);
+  EXPECT_EQ(static_cast<uint32_t>(12), result.position);
   EXPECT_EQ(csv_state::record_end, result.states[0].head);
   EXPECT_EQ(csv_state::field_end, result.states[0].tail);
 }

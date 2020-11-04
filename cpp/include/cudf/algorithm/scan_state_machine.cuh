@@ -60,6 +60,7 @@ struct agent {
   typename Policy::SeedOp seed_op;
   typename Policy::StepOp step_op;
   typename Policy::JoinOp join_op;
+  typename Policy::OutputOp output_op;
   typename Policy::StateTileState& state_tile_state;
   typename Policy::OutputTileState& output_tile_state;
   bool is_first_pass;
@@ -128,7 +129,7 @@ struct agent {
 
     // Scan Inputs per Thread
 
-    auto thread_state_seed        = seed_op(tile_offset + thread_offset, items[0]);
+    auto thread_state_seed        = seed_op(tile_offset + thread_offset);
     auto const thread_output_seed = *d_output;
     auto thread_state             = thread_state_seed;
     auto thread_output            = thread_output_seed;
@@ -148,7 +149,7 @@ struct agent {
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
-        thread_state = step_op.template operator()<false>(thread_output, thread_state, items[i]);
+        thread_state = step_op(thread_state, items[i]);
       };
     };
 
@@ -179,7 +180,7 @@ struct agent {
         .ExclusiveScan(                                //
           thread_state,
           thread_state,
-          thread_state_seed,  // TODO: this seed is probably wrong.
+          thread_state_seed,  // FISHY
           join_op,
           block_state);
 
@@ -197,7 +198,7 @@ struct agent {
       Policy::StateBlockScan(temp_storage.state_scan)  //
         .ExclusiveScan(                                //
           thread_state,
-          thread_state,  // TODO: probably needs a seed
+          thread_state,  // FISHY
           join_op,
           prefix_op);
 
@@ -232,7 +233,13 @@ struct agent {
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
-        thread_state = step_op.operator()<false>(thread_output, thread_state, items[i]);
+        auto next_state = step_op(thread_state, items[i]);
+        thread_output   = output_op.operator()<false>(  //
+          thread_output,
+          thread_state,
+          next_state,
+          items[i]);
+        thread_state    = next_state;
       }
     }
 
@@ -322,7 +329,13 @@ struct agent {
     if (not is_first_pass) {
       for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
         if (thread_offset + i < num_items_remaining) {
-          thread_state = step_op.template operator()<true>(thread_output, thread_state, items[i]);
+          auto next_state = step_op(thread_state, items[i]);
+          thread_output   = output_op.operator()<true>(  //
+            thread_output,
+            thread_state,
+            next_state,
+            items[i]);
+          thread_state    = next_state;
         }
       }
     }
@@ -356,6 +369,7 @@ __global__ void execution_pass_kernel(  //
   typename Policy::SeedOp seed_op,
   typename Policy::StepOp step_op,
   typename Policy::JoinOp join_op,
+  typename Policy::OutputOp output_op,
   typename Policy::StateTileState state_tile_state,
   typename Policy::OutputTileState output_tile_state,
   bool is_first_pass,
@@ -370,6 +384,7 @@ __global__ void execution_pass_kernel(  //
     seed_op,
     step_op,
     join_op,
+    output_op,
     state_tile_state,
     output_tile_state,
     is_first_pass,
@@ -385,7 +400,8 @@ template <typename InputIterator_,
           typename OutputIterator_,
           typename StateSeedOp_,
           typename StateStepOp_,
-          typename StateJoinOp_>
+          typename StateJoinOp_,
+          typename OutputOp_>
 struct policy {
   static constexpr uint32_t THREADS_PER_INIT_BLOCK = 128;
   static constexpr uint32_t THREADS_PER_BLOCK      = 32;
@@ -395,9 +411,10 @@ struct policy {
   using InputIterator       = InputIterator_;
   using OutputStateIterator = OutputStateIterator_;
 
-  using SeedOp = StateSeedOp_;
-  using StepOp = StateStepOp_;
-  using JoinOp = StateJoinOp_;
+  using SeedOp   = StateSeedOp_;
+  using StepOp   = StateStepOp_;
+  using JoinOp   = StateJoinOp_;
+  using OutputOp = OutputOp_;
 
   using OutputIterator = OutputIterator_;
 
@@ -440,7 +457,8 @@ template <typename InputIterator,
           typename OutputIterator,
           typename SeedOp,
           typename StepOp,
-          typename JoinOp>
+          typename JoinOp,
+          typename OutputOp>
 void scan_state_machine(  //
   rmm::device_buffer& temp_storage,
   InputIterator d_in_begin,
@@ -450,11 +468,13 @@ void scan_state_machine(  //
   SeedOp seed_op,
   StepOp step_op,
   JoinOp join_op,
+  OutputOp output_op,
   cudaStream_t stream = 0)
 {
   CUDF_FUNC_RANGE();
 
-  using Policy = policy<InputIterator, OutputStateIterator, OutputIterator, SeedOp, StepOp, JoinOp>;
+  using Policy =
+    policy<InputIterator, OutputStateIterator, OutputIterator, SeedOp, StepOp, JoinOp, OutputOp>;
 
   uint32_t num_tiles = ceil_div(d_in_end - d_in_begin, Policy::ITEMS_PER_TILE);
 
@@ -518,6 +538,7 @@ void scan_state_machine(  //
       seed_op,
       step_op,
       join_op,
+      output_op,
       state_tile_state,
       output_tile_state,
       is_first_pass,
