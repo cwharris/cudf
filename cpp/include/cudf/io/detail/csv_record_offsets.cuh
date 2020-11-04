@@ -233,18 +233,18 @@ struct csv_fsm_seed_op {
     char current_char)
   {
     if (idx == 0) {  //
-      return {idx, 1, {{csv_state::record_end, csv_state::record_end}}};
+      return {idx, 1, {csv_state_segment(csv_state::record_end)}};
     }
     return {
       idx,
       8,
       {
-        {csv_state::record_end, csv_state::record_end},
-        {csv_state::comment, csv_state::comment},
-        {csv_state::field, csv_state::field},
-        {csv_state::field_quoted, csv_state::field_quoted},
-        {csv_state::field_quoted_quote, csv_state::field_quoted_quote},
-        {csv_state::field_end, csv_state::field_end},
+        csv_state_segment(csv_state::record_end),
+        csv_state_segment(csv_state::comment),
+        csv_state_segment(csv_state::field),
+        csv_state_segment(csv_state::field_quoted),
+        csv_state_segment(csv_state::field_quoted_quote),
+        csv_state_segment(csv_state::field_end),
       },
     };
   }
