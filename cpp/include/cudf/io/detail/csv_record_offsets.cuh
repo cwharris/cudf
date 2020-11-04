@@ -273,18 +273,27 @@ struct csv_fsm_join_op {
 
 struct csv_fsm_output_op {
   template <bool output_enabled>
-  inline constexpr csv_fsm_outputs operator()(csv_fsm_outputs out,
-                                              csv_machine_state prev,
-                                              csv_machine_state next,
-                                              char current_char)
+  inline __device__ csv_fsm_outputs
+  operator()(csv_fsm_outputs out, csv_machine_state prev, csv_machine_state next, char current_char)
   {
-    if (not(prev == csv_state::record_end)) { return out; }
-    if (not(next == csv_state::field)) { return out; }
+    if (prev == csv_state::record_end and next == csv_state::field) {
+      out.record_offsets.emit<output_enabled>(prev.position);
+    }
 
-    out.record_offsets.emit<output_enabled>(prev.position);
+    if (output_enabled) {
+      printf("bid(%2i) tid(%2i): pos(%4i -> %-4i) char(%2c) out(%2i)\n",
+             blockIdx.x,
+             threadIdx.x,
+             prev.position,
+             next.position,
+             current_char,
+             out.record_offsets.output_count);
+    }
 
     return out;
   }
+
+  // TODO: add finalizer
 };
 
 rmm::device_uvector<uint32_t> csv_gather_row_offsets(
