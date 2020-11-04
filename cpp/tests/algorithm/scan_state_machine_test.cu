@@ -209,14 +209,29 @@ TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates)
 TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates2)
 {
   using namespace cudf::io::detail;
-  auto a = csv_machine_state(0, csv_state::record_end);
-  auto b = csv_machine_state(0, csv_state::record_end);
+  auto a = csv_machine_state(5, csv_state::record_end);
+  auto b = csv_machine_state(7, csv_state::record_end);
 
   auto result = a & b;
 
   ASSERT_EQ(static_cast<uint32_t>(1), result.num_states);
-  ASSERT_EQ(csv_state::record_end, result.states[0].head);
-  ASSERT_EQ(csv_state::record_end, result.states[0].tail);
+  EXPECT_EQ(static_cast<uint32_t>(7), result.position);
+  EXPECT_EQ(csv_state::record_end, result.states[0].head);
+  EXPECT_EQ(csv_state::record_end, result.states[0].tail);
+}
+
+TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates3)
+{
+  using namespace cudf::io::detail;
+  auto a = csv_machine_state(5, csv_state_segment(csv_state::record_end, csv_state::field));
+  auto b = csv_machine_state(7, csv_state_segment(csv_state::field, csv_state::field_end));
+
+  auto result = a & b;
+
+  ASSERT_EQ(static_cast<uint32_t>(1), result.num_states);
+  EXPECT_EQ(static_cast<uint32_t>(7), result.position);
+  EXPECT_EQ(csv_state::record_end, result.states[0].head);
+  EXPECT_EQ(csv_state::field_end, result.states[0].tail);
 }
 
 CUDF_TEST_PROGRAM_MAIN()

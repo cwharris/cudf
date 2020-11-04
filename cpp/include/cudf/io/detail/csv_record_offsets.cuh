@@ -184,13 +184,13 @@ struct csv_machine_state {
   csv_state_segment states[8];
 
   constexpr csv_machine_state() {}
-  constexpr csv_machine_state(uint32_t position, csv_state state)
+  constexpr csv_machine_state(uint32_t position, csv_state_segment state)
     : position(position), num_states(1)
   {
     states[0] = state;
   }
 
-  inline constexpr csv_machine_state get_next(csv_token const& token)
+  inline constexpr csv_machine_state operator+(csv_token const& token)
   {
     csv_machine_state result;
 
@@ -199,20 +199,22 @@ struct csv_machine_state {
     for (auto i = 0; i < num_states; i++) {
       auto next_state = get_next_state(states[i].tail, token);
       if (next_state != csv_state::none) {
-        result.states[result.num_states++] = csv_state_segment(states[i].head, next_state);
+        result |= csv_state_segment(states[i].head, next_state);
       }
     }
 
     return result;
   }
 
-  inline constexpr bool includes(csv_state needle)
+  inline constexpr bool operator==(csv_state needle)
   {
     for (auto i = 0; i < num_states; i++) {
       if (states[i].tail == needle) { return true; }
     }
     return false;
   }
+
+  inline constexpr void operator|=(csv_state_segment state) { states[num_states++] = state; }
 
   inline constexpr csv_machine_state operator&(csv_machine_state const& rhs) const
   {
@@ -224,8 +226,7 @@ struct csv_machine_state {
     for (auto i = 0; i < num_states; i++) {
       for (auto j = 0; j < rhs.num_states; j++) {
         if (states[i].tail == rhs.states[j].head) {
-          result.states[result.num_states++] =
-            csv_state_segment(states[i].head, rhs.states[j].tail);
+          result |= csv_state_segment(states[i].head, rhs.states[j].tail);
         }
       }
     }
@@ -240,7 +241,7 @@ struct csv_fsm_seed_op {
     char current_char)
   {
     if (position == 0) {  //
-      return csv_machine_state(position, csv_state::record_end);
+      return csv_machine_state(position, csv_state_segment(csv_state::record_end));
     }
 
     auto result = csv_machine_state();
@@ -262,18 +263,16 @@ struct csv_fsm_scan_op {
   template <bool output_enabled>
   inline constexpr csv_machine_state operator()(  //
     csv_fsm_outputs& outputs,
-    csv_machine_state state,
+    csv_machine_state prev,
     char current_char)
   {
-    auto token      = get_token(0, current_char);
-    auto next_state = state.get_next(token);
+    auto next = prev + get_token(0, current_char);
 
-    auto const is_record_end =
-      state.includes(csv_state::record_end) and next_state.includes(csv_state::field);
+    if (prev == csv_state::record_end and next == csv_state::field) {
+      outputs.record_offsets.emit<output_enabled>(prev.position);
+    }
 
-    if (is_record_end) { outputs.record_offsets.emit<output_enabled>(state.position); }
-
-    return next_state;
+    return next;
   }
 };
 
