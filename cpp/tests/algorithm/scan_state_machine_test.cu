@@ -206,4 +206,17 @@ TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates)
   EXPECT_EQ(static_cast<uint32_t>(95), h_row_offsets[8]);
 }
 
+TEST_F(InclusiveCopyIfTest, CanTransitionCsvStates2)
+{
+  using namespace cudf::io::detail;
+  auto a = csv_machine_state(0, csv_state::record_end);
+  auto b = csv_machine_state(0, csv_state::record_end);
+
+  auto result = a & b;
+
+  ASSERT_EQ(static_cast<uint32_t>(1), result.num_states);
+  ASSERT_EQ(csv_state::record_end, result.states[0].head);
+  ASSERT_EQ(csv_state::record_end, result.states[0].tail);
+}
+
 CUDF_TEST_PROGRAM_MAIN()

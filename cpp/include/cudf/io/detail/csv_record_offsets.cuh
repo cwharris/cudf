@@ -179,15 +179,22 @@ struct csv_state_segment {
 };
 
 struct csv_machine_state {
-  uint32_t idx;
+  uint32_t position  = 0;
   uint8_t num_states = 0;
   csv_state_segment states[8];
 
-  inline __host__ __device__ csv_machine_state get_next(csv_token const& token)
+  constexpr csv_machine_state() {}
+  constexpr csv_machine_state(uint32_t position, csv_state state)
+    : position(position), num_states(1)
+  {
+    states[0] = state;
+  }
+
+  inline constexpr csv_machine_state get_next(csv_token const& token)
   {
     csv_machine_state result;
 
-    result.idx = idx + 1;
+    result.position = position + 1;
 
     for (auto i = 0; i < num_states; i++) {
       auto next_state = get_next_state(states[i].tail, token);
@@ -207,12 +214,12 @@ struct csv_machine_state {
     return false;
   }
 
-  inline __host__ __device__ csv_machine_state operator&(csv_machine_state const& rhs) const
+  inline constexpr csv_machine_state operator&(csv_machine_state const& rhs) const
   {
     // the result of this function is the "real" rhs state.
     csv_machine_state result;
 
-    result.idx = rhs.idx;
+    result.position = rhs.position;
 
     for (auto i = 0; i < num_states; i++) {
       for (auto j = 0; j < rhs.num_states; j++) {
@@ -228,31 +235,32 @@ struct csv_machine_state {
 };  // namespace detail
 
 struct csv_fsm_seed_op {
-  inline __host__ __device__ csv_machine_state operator()(  //
-    uint32_t idx,
+  inline constexpr csv_machine_state operator()(  //
+    uint32_t position,
     char current_char)
   {
-    if (idx == 0) {  //
-      return {idx, 1, {csv_state_segment(csv_state::record_end)}};
+    if (position == 0) {  //
+      return csv_machine_state(position, csv_state::record_end);
     }
-    return {
-      idx,
-      8,
-      {
-        csv_state_segment(csv_state::record_end),
-        csv_state_segment(csv_state::comment),
-        csv_state_segment(csv_state::field),
-        csv_state_segment(csv_state::field_quoted),
-        csv_state_segment(csv_state::field_quoted_quote),
-        csv_state_segment(csv_state::field_end),
-      },
-    };
+
+    auto result = csv_machine_state();
+
+    result.position   = position;
+    result.num_states = 6;
+    result.states[0]  = csv_state_segment(csv_state::record_end);
+    result.states[1]  = csv_state_segment(csv_state::comment);
+    result.states[2]  = csv_state_segment(csv_state::field);
+    result.states[3]  = csv_state_segment(csv_state::field_quoted);
+    result.states[4]  = csv_state_segment(csv_state::field_quoted_quote);
+    result.states[5]  = csv_state_segment(csv_state::field_end);
+
+    return result;
   }
-};
+};  // namespace detail
 
 struct csv_fsm_scan_op {
   template <bool output_enabled>
-  inline __host__ __device__ csv_machine_state operator()(  //
+  inline constexpr csv_machine_state operator()(  //
     csv_fsm_outputs& outputs,
     csv_machine_state state,
     char current_char)
@@ -260,18 +268,17 @@ struct csv_fsm_scan_op {
     auto token      = get_token(0, current_char);
     auto next_state = state.get_next(token);
 
-    if (state.includes(csv_state::record_end) and next_state.includes(csv_state::field)) {
-      outputs.record_offsets.emit<output_enabled>(state.idx);
-    }
+    auto const is_record_end =
+      state.includes(csv_state::record_end) and next_state.includes(csv_state::field);
+
+    if (is_record_end) { outputs.record_offsets.emit<output_enabled>(state.position); }
 
     return next_state;
   }
 };
 
 struct csv_fsm_join_op {
-  inline __host__ __device__ csv_machine_state operator()(  //
-    csv_machine_state lhs,
-    csv_machine_state rhs)
+  inline constexpr csv_machine_state operator()(csv_machine_state lhs, csv_machine_state rhs)
   {
     return lhs & rhs;
   }
