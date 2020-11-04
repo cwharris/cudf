@@ -170,10 +170,18 @@ struct csv_fsm_outputs {
   }
 };
 
+struct csv_state_segment {
+  inline constexpr csv_state_segment() : csv_state_segment(csv_state::none) {}
+  inline constexpr csv_state_segment(csv_state state) : head(state), tail(state) {}
+  inline constexpr csv_state_segment(csv_state head, csv_state tail) : head(head), tail(tail) {}
+  csv_state head;
+  csv_state tail;
+};
+
 struct csv_machine_state {
   uint32_t idx;
   uint8_t num_states = 0;
-  thrust::pair<csv_state, csv_state> states[8];
+  csv_state_segment states[8];
 
   inline __host__ __device__ csv_machine_state get_next(csv_token const& token)
   {
@@ -182,20 +190,19 @@ struct csv_machine_state {
     result.idx = idx + 1;
 
     for (auto i = 0; i < num_states; i++) {
-      auto const ancestor   = states[i].first;
-      auto const current    = states[i].second;
-      auto const next_state = get_next_state(current, token);
+      auto next_state = get_next_state(states[i].tail, token);
       if (next_state != csv_state::none) {
-        result.states[result.num_states++] = {ancestor, next_state};
+        result.states[result.num_states++] = csv_state_segment(states[i].head, next_state);
       }
     }
+
     return result;
   }
 
   inline constexpr bool includes(csv_state needle)
   {
     for (auto i = 0; i < num_states; i++) {
-      if (states[i].second == needle) { return true; }
+      if (states[i].tail == needle) { return true; }
     }
     return false;
   }
@@ -209,15 +216,16 @@ struct csv_machine_state {
 
     for (auto i = 0; i < num_states; i++) {
       for (auto j = 0; j < rhs.num_states; j++) {
-        if (states[i].second == rhs.states[j].first) {
-          result.states[result.num_states++] = {states[i].first, rhs.states[j].second};
+        if (states[i].tail == rhs.states[j].head) {
+          result.states[result.num_states++] =
+            csv_state_segment(states[i].head, rhs.states[j].tail);
         }
       }
     }
 
     return result;
   }
-};
+};  // namespace detail
 
 struct csv_fsm_seed_op {
   inline __host__ __device__ csv_machine_state operator()(  //
