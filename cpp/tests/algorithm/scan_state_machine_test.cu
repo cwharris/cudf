@@ -23,36 +23,22 @@ struct simple_output {
 
   inline __device__ simple_output operator+(simple_output other) const
   {
-    return {
-      a + other.a,
-      b + other.b,
-    };
+    return {a + other.a, b + other.b};
   }
 };
 
 struct simple_state {
   uint32_t sum;
-  inline __device__ simple_state operator+(simple_state other) const
-  {
-    return {
-      sum + other.sum,
-    };
-  }
-
-  inline __device__ simple_state operator+(uint32_t input) const
-  {
-    return {
-      sum + input,
-    };
-  }
+  inline __device__ simple_state operator+(simple_state other) const { return {sum + other.sum}; }
+  inline __device__ simple_state operator+(uint32_t input) const { return {sum + input}; }
 };
 
 struct simple_seed_op {
-  inline __device__ simple_state operator()(uint32_t position) { return {}; }
+  inline __device__ simple_state operator()(uint32_t position) const { return {}; }
 };
 
 struct simple_step_op {
-  inline __device__ simple_state operator()(simple_state prev_state, uint32_t rhs)
+  inline __device__ simple_state operator()(simple_state prev_state, uint32_t rhs) const
   {
     return prev_state + rhs;
   }
@@ -61,7 +47,7 @@ struct simple_step_op {
 struct simple_output_op {
   template <bool output_enabled>
   inline __device__ simple_output
-  operator()(simple_output out, simple_state prev, simple_state next, uint32_t rhs)
+  operator()(simple_output out, simple_state prev, simple_state next, uint32_t rhs) const
   {
     if (prev.sum % 3 == 0) { out.a.emit<output_enabled>(prev.sum); }
     if (prev.sum % 2 == 0) { out.b.emit<output_enabled>(prev.sum * 2.0); }
@@ -69,9 +55,7 @@ struct simple_output_op {
     return out;
   }
 
-  // // TODO: add a finalizer
-  // template <typename output_enabled>
-  // simple_output operator()(simple_output out, simple_state final){}
+  // TODO: add a "final state" operator
 };
 
 struct simple_join_op {

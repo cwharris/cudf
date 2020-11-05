@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 
 #include <cudf/algorithm/scan_state_machine.cuh>
@@ -271,24 +272,36 @@ struct csv_fsm_join_op {
   }
 };
 
+struct csv_output_ranges {
+  uint32_t bytes_begin = 0;
+  uint32_t bytes_end   = std::numeric_limits<uint32_t>::max();
+  uint32_t rows_begin  = 0;
+  uint32_t rows_end    = std::numeric_limits<uint32_t>::max();
+};
+
 struct csv_fsm_output_op {
+  csv_output_ranges range;
+
   template <bool output_enabled>
   inline __device__ csv_fsm_outputs
   operator()(csv_fsm_outputs out, csv_machine_state prev, csv_machine_state next, char current_char)
   {
-    if (prev == csv_state::record_end and next == csv_state::field) {
-      out.record_offsets.emit<output_enabled>(prev.position);
-    }
+    if (prev.position < range.bytes_begin) { return out; }
+    if (prev.position >= range.bytes_end) { return out; }
+    if (not(prev == csv_state::record_end)) { return out; }
+    if (not(next == csv_state::field)) { return out; }
 
-    if (output_enabled) {
-      printf("bid(%2i) tid(%2i): pos(%4i -> %-4i) char(%2c) out(%2i)\n",
-             blockIdx.x,
-             threadIdx.x,
-             prev.position,
-             next.position,
-             current_char,
-             out.record_offsets.output_count);
-    }
+    out.record_offsets.emit<output_enabled>(prev.position);
+
+    // if (output_enabled) {
+    //   printf("bid(%2i) tid(%2i): pos(%4i -> %-4i) char(%2c) out(%2i)\n",
+    //          blockIdx.x,
+    //          threadIdx.x,
+    //          prev.position,
+    //          next.position,
+    //          current_char,
+    //          out.record_offsets.output_count);
+    // }
 
     return out;
   }
