@@ -105,7 +105,7 @@ struct agent {
 
     uint32_t const thread_offset = threadIdx.x * Policy::ITEMS_PER_THREAD;
 
-    // Load Inputs
+    // 1: Load Inputs
 
     typename Policy::Input items[Policy::ITEMS_PER_THREAD];
 
@@ -118,6 +118,8 @@ struct agent {
     }
 
     __syncthreads();
+
+    // 2.A: Scan State
 
     auto thread_state_seed        = seed_op(tile_offset + thread_offset);
     auto const thread_output_seed = *d_output;
@@ -145,7 +147,9 @@ struct agent {
 
     __syncthreads();
 
-    // Count Outputs
+    // 2.B: Scan Aggregate
+
+    // 2.C: Scan Output Count
 
     thread_output     = *d_output;  // reset state gathering.
     thread_state_seed = thread_state;
@@ -176,7 +180,7 @@ struct agent {
 
     thread_state = thread_state_seed;
 
-    // Collect Outputs
+    // 3: Scan Output Mutation
 
     if (not is_first_pass) {
       for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
@@ -200,7 +204,7 @@ struct agent {
     typename Policy::StatePrefixCallback::TempStorage& state_prefix,
     typename Policy::StateBlockScan::TempStorage& state_scan,
     typename Policy::StateTileState& state_tile_state,
-    typename Policy::JoinOp join_op,
+    typename Policy::JoinOp& join_op,
     uint32_t tile_idx,
     typename Policy::State const& thread_state_seed,
     typename Policy::State& thread_state,
