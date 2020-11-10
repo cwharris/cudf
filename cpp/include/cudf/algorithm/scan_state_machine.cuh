@@ -103,10 +103,6 @@ struct agent {
       };
     } temp_storage;
 
-    // if (threadIdx.x == 0) {  //
-    //   printf("bid(%i) tid(%i): ===== 0 =====\n", blockIdx.x, threadIdx.x);
-    // }
-
     uint32_t const thread_offset = threadIdx.x * Policy::ITEMS_PER_THREAD;
 
     // Load Inputs
@@ -200,10 +196,10 @@ struct agent {
   }
 
   template <bool IS_LAST_TILE>
-  static __device__ void scan_state(  //
-    typename Policy::StatePrefixCallback::TempStorage state_prefix,
-    typename Policy::StateBlockScan::TempStorage state_scan,
-    typename Policy::StateTileState state_tile_state,
+  static inline __device__ void scan_state(  //
+    typename Policy::StatePrefixCallback::TempStorage& state_prefix,
+    typename Policy::StateBlockScan::TempStorage& state_scan,
+    typename Policy::StateTileState& state_tile_state,
     typename Policy::JoinOp join_op,
     uint32_t tile_idx,
     typename Policy::State const& thread_state_seed,
@@ -242,10 +238,10 @@ struct agent {
   }
 
   template <bool IS_LAST_TILE>
-  static __device__ void scan_output(  //
-    typename Policy::OutputPrefixCallback::TempStorage output_prefix,
-    typename Policy::OutputBlockScan::TempStorage output_scan,
-    typename Policy::OutputTileState output_tile_state,
+  static inline __device__ void scan_output(  //
+    typename Policy::OutputPrefixCallback::TempStorage& output_prefix,
+    typename Policy::OutputBlockScan::TempStorage& output_scan,
+    typename Policy::OutputTileState& output_tile_state,
     uint32_t tile_idx,
     typename Policy::Output const& thread_output_seed,
     typename Policy::Output& thread_output,
