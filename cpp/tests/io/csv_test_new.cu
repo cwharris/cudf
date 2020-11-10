@@ -109,7 +109,7 @@ TEST_F(CsvStateMachineTest, CanTransitionStateSegments)
 {
   using namespace cudf::io::detail;
 
-  EXPECT_EQ(csv_state::record_end, csv_state_superposition().segments[0]);
+  EXPECT_EQ(csv_state::record_end, csv_superstate());
 }
 
 TEST_F(CsvStateMachineTest, CanTransitionCsvStates2)
@@ -121,7 +121,7 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStates2)
   auto result = a + b;
 
   EXPECT_EQ(static_cast<uint32_t>(99), result.byte_count);
-  EXPECT_EQ(csv_state::record_end, result.states);
+  EXPECT_EQ(csv_state::record_end, result.state);
   EXPECT_EQ(static_cast<uint32_t>(12), result.row_count);
 }
 
@@ -129,8 +129,8 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStates3)
 {
   using namespace cudf::io::detail;
 
-  auto a = csv_state_superposition() + csv_token::comment + csv_token::other;
-  auto b = csv_state_superposition() + csv_token::newline + csv_token::other;
+  auto a = csv_superstate() + csv_token::comment + csv_token::other;
+  auto b = csv_superstate() + csv_token::newline + csv_token::other;
 
   auto result = a + b;
 

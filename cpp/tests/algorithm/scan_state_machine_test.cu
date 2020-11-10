@@ -17,8 +17,8 @@ class ScanStateMachineTest : public cudf::test::BaseFixture {
 };
 
 struct simple_output {
-  fsm_output<uint32_t> a;
-  fsm_output<double> b;
+  dfa_output<uint32_t> a;
+  dfa_output<double> b;
 
   inline constexpr simple_output operator+(simple_output other) const
   {

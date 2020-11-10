@@ -23,8 +23,56 @@ inline constexpr auto ceil_div(Dividend dividend, Divisor divisor)
   return dividend / divisor + (dividend % divisor != 0);
 }
 
+template <typename State, typename Instruction, int N>
+struct dfa_superposition {
+  using Offset                         = std::underlying_type_t<State>;
+  State states[static_cast<Offset>(N)] = {};
+
+  inline constexpr dfa_superposition()
+  {
+    for (auto i = 0; i < N; i++) { states[i] = static_cast<State>(i); }
+  }
+
+  inline constexpr dfa_superposition(State states[N]) : states(states) {}
+
+  inline constexpr dfa_superposition(State state)
+  {
+    for (auto i = 0; i < N; i++) { states[i] = state; }
+  }
+
+  inline constexpr dfa_superposition operator+(Instruction rhs) const
+  {
+    dfa_superposition result;
+    for (auto i = 0; i < N; i++) { result.states[i] = states[i] + rhs; }
+    return result;
+  }
+
+  // should we pass arg by const& ?
+  inline constexpr dfa_superposition operator+(dfa_superposition rhs) const
+  {
+    dfa_superposition result;
+    for (auto i = 0; i < N; i++) { result.states[i] = rhs.states[static_cast<Offset>(states[i])]; }
+    return result;
+  }
+
+  inline constexpr bool operator==(State state) const { return states[0] == state; }
+  inline constexpr bool operator!=(State state) const { return states[0] != state; }
+};
+
+template <typename State, typename Instruction, int N>
+inline constexpr bool operator==(State state, dfa_superposition<State, Instruction, N> superstate)
+{
+  return superstate == state;
+}
+
+template <typename State, typename Instruction, int N>
+inline constexpr bool operator!=(State state, dfa_superposition<State, Instruction, N> superstate)
+{
+  return superstate != state;
+}
+
 template <typename T>
-struct fsm_output {
+struct dfa_output {
   T* output_buffer;
   uint32_t output_count;
 
@@ -32,18 +80,13 @@ struct fsm_output {
   inline constexpr void emit(T value)
   {
     if (output_enabled) {
-      // printf("bid(%i) tid(%i): output %i = %i\n",  //
-      //        blockIdx.x,
-      //        threadIdx.x,
-      //        output_count,
-      //        value);
       output_buffer[output_count++] = value;
     } else {
       output_count++;
     }
   }
 
-  inline constexpr fsm_output operator+(fsm_output other) const
+  inline constexpr dfa_output operator+(dfa_output other) const
   {
     return {output_buffer, output_count + other.output_count};
   }

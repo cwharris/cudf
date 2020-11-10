@@ -126,6 +126,11 @@ inline constexpr csv_state get_next_state(csv_state state, csv_token token)
   return csv_state::none;
 }
 
+inline constexpr csv_state operator+(csv_state state, csv_token token)
+{
+  return get_next_state(state, token);
+}
+
 }  // namespace detail
 }  // namespace io
 }  // namespace cudf
