@@ -54,36 +54,36 @@ struct csv_fsm_outputs {
   }
 };
 
-struct csv_state_segments {
+struct csv_state_superposition {
   static constexpr uint8_t N = 7;
   csv_state segments[N]      = {};
 
-  inline constexpr csv_state_segments()
+  inline constexpr csv_state_superposition()
   {
     for (auto i = 0; i < N; i++) {  //
       segments[i] = static_cast<csv_state>(i);
     }
   }
 
-  inline constexpr csv_state_segments(csv_state state)
+  inline constexpr csv_state_superposition(csv_state state)
   {
     for (auto i = 0; i < N; i++) {  //
       segments[i] = state;
     }
   }
 
-  inline constexpr csv_state_segments operator+(csv_token const token)
+  inline constexpr csv_state_superposition operator+(csv_token const token)
   {
-    csv_state_segments result;
+    csv_state_superposition result;
     for (auto i = 0; i < N; i++) {  //
       result.segments[i] = get_next_state(segments[i], token);
     }
     return result;
   }
 
-  inline constexpr csv_state_segments operator+(csv_state_segments rhs)
+  inline constexpr csv_state_superposition operator+(csv_state_superposition rhs)
   {
-    csv_state_segments result;
+    csv_state_superposition result;
     for (auto i = 0; i < N; i++) {  //
       result.segments[i] = rhs.segments[static_cast<uint8_t>(segments[i])];
     }
@@ -93,51 +93,46 @@ struct csv_state_segments {
   inline constexpr bool operator==(csv_state state) { return segments[0] == state; }
 };
 
-inline constexpr bool operator==(csv_state state, csv_state_segments segments)
+inline constexpr bool operator==(csv_state state, csv_state_superposition segments)
 {
   return segments == state;
 }
 
 struct csv_machine_state {
-  uint32_t position = 0;
-  csv_state_segments states;
+  csv_state_superposition states;
+  uint32_t byte_count  = 0;
+  uint32_t row_count   = 0;
+  bool is_record_start = false;
 
-  inline constexpr csv_machine_state() {}
-
-  inline constexpr csv_machine_state(uint32_t position)  //
-    : position(position)
-  {
-  }
-
-  inline constexpr csv_machine_state(uint32_t position, csv_state state)  //
-    : position(position), states(state)
-  {
-  }
-
-  inline constexpr csv_machine_state(uint32_t position, csv_state_segments states)  //
-    : position(position), states(states)
-  {
-  }
-
-  inline constexpr csv_machine_state operator+(csv_token rhs)
-  {
-    return {position + 1, states + rhs};
-  }
   inline constexpr csv_machine_state operator+(csv_machine_state rhs)
   {
-    return {position + rhs.position, states + rhs.states};
+    return {
+      states + rhs.states,
+      byte_count + rhs.byte_count,
+      row_count + rhs.row_count,
+      rhs.is_record_start,
+    };
   }
 };
 
 struct csv_fsm_seed_op {
-  inline constexpr csv_machine_state operator()(uint32_t position) { return csv_machine_state{0}; }
+  inline constexpr csv_machine_state operator()(uint32_t position) { return csv_machine_state(); }
 };
 
 struct csv_fsm_scan_op {
   csv_token_options tokens_options;
   inline constexpr csv_machine_state operator()(csv_machine_state prev, char current_char)
   {
-    return prev + get_token(tokens_options, 0, current_char);
+    auto token = get_token(tokens_options, 0, current_char);
+
+    auto is_new_record = prev.states == csv_state::record_end and token == csv_token::other;
+
+    return {
+      prev.states + token,
+      prev.byte_count + 1,
+      prev.row_count + is_new_record,
+      is_new_record,
+    };
   }
 };
 
@@ -148,7 +143,7 @@ struct csv_fsm_join_op {
   }
 };
 
-struct csv_output_ranges {
+struct csv_range_options {
   uint32_t bytes_begin = 0;
   uint32_t bytes_end   = std::numeric_limits<uint32_t>::max();
   uint32_t rows_begin  = 0;
@@ -156,28 +151,37 @@ struct csv_output_ranges {
 };
 
 struct csv_fsm_output_op {
-  csv_output_ranges range;
+  csv_range_options range;
 
   template <bool output_enabled>
   inline __device__ csv_fsm_outputs
   operator()(csv_fsm_outputs out, csv_machine_state prev, csv_machine_state next, char current_char)
   {
-    if (prev.position < range.bytes_begin) { return out; }
-    if (prev.position >= range.bytes_end) { return out; }
-    if (not(prev.states == csv_state::record_end)) { return out; }
-    if (not(next.states == csv_state::field)) { return out; }
+    if (output_enabled) {
+      printf(
+        "bid(%2i) tid(%2i): byte(%-4i) char(%2c) state(%i - %i) range(%i, %i) count(%2i) "
+        "out(%2i)\n ",
+        blockIdx.x,
+        threadIdx.x,
+        next.byte_count,
+        current_char,
+        prev.states.segments[0],
+        next.states.segments[0],
+        range.bytes_begin,
+        range.bytes_end,
+        next.row_count,
+        out.record_offsets.output_count);
+    }
 
-    out.record_offsets.emit<output_enabled>(prev.position);
+    if (next.byte_count - 1 < range.bytes_begin) { return out; }
+    if (next.byte_count - 1 >= range.bytes_end) { return out; }
 
-    // if (output_enabled) {
-    //   printf("bid(%2i) tid(%2i): pos(%4i -> %-4i) char(%2c) out(%2i)\n",
-    //          blockIdx.x,
-    //          threadIdx.x,
-    //          prev.position,
-    //          next.position,
-    //          current_char,
-    //          out.record_offsets.output_count);
-    // }
+    if (not next.is_record_start) { return out; }
+
+    if (next.row_count < range.rows_begin) { return out; }
+    if (next.row_count >= range.rows_end) { return out; }
+
+    out.record_offsets.emit<output_enabled>(next.byte_count - 1);
 
     return out;
   }
@@ -188,16 +192,17 @@ struct csv_fsm_output_op {
 rmm::device_uvector<uint32_t> csv_gather_row_offsets(
   device_span<char> input,
   csv_token_options token_options     = {},
+  csv_range_options range_options     = {},
   cudaStream_t stream                 = 0,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
 {
   auto seed_op   = csv_fsm_seed_op{};
   auto scan_op   = csv_fsm_scan_op{token_options};
   auto join_op   = csv_fsm_join_op{};
-  auto output_op = csv_fsm_output_op{};
+  auto output_op = csv_fsm_output_op{range_options};
 
-  auto d_output_state = rmm::device_scalar<csv_machine_state>(csv_machine_state{0}, stream, mr);
-  auto d_output       = rmm::device_scalar<csv_fsm_outputs>(csv_fsm_outputs{}, stream, mr);
+  auto d_output_state = rmm::device_scalar<csv_machine_state>(csv_machine_state(), stream, mr);
+  auto d_output       = rmm::device_scalar<csv_fsm_outputs>(csv_fsm_outputs(), stream, mr);
 
   rmm::device_buffer temp_memory;
 

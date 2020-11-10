@@ -64,37 +64,77 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStates)
   EXPECT_EQ(static_cast<uint32_t>(95), h_row_offsets[8]);
 }
 
+TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithRowRange)
+{
+  auto input = std::string(
+    "hello, world\n"
+    "and,\"not\nh,ing\"\n"
+    "new\n"
+    "hello, world\n"
+    "and,\"not\nh,ing\"\n"
+    "new\n"
+    "hello, world\n"
+    "and,\"not\nh,ing\"\n"
+    "new\n");
+
+  auto d_input = rmm::device_vector<char>(input.c_str(), input.c_str() + input.size());
+
+  auto d_row_offsets = cudf::io::detail::csv_gather_row_offsets(d_input);
+
+  ASSERT_EQ(static_cast<uint32_t>(9), d_row_offsets.size());
+
+  auto h_row_offsets = std::vector<uint32_t>(d_row_offsets.size());
+
+  cudaStreamSynchronize(0);
+
+  cudaMemcpy(h_row_offsets.data(),  //
+             d_row_offsets.data(),
+             d_row_offsets.size() * sizeof(uint32_t),
+             cudaMemcpyDeviceToHost);
+
+  EXPECT_EQ(static_cast<uint32_t>(0), h_row_offsets[0]);
+  EXPECT_EQ(static_cast<uint32_t>(13), h_row_offsets[1]);
+  EXPECT_EQ(static_cast<uint32_t>(29), h_row_offsets[2]);
+
+  EXPECT_EQ(static_cast<uint32_t>(33), h_row_offsets[3]);
+  EXPECT_EQ(static_cast<uint32_t>(46), h_row_offsets[4]);
+  EXPECT_EQ(static_cast<uint32_t>(62), h_row_offsets[5]);
+
+  EXPECT_EQ(static_cast<uint32_t>(66), h_row_offsets[6]);
+  EXPECT_EQ(static_cast<uint32_t>(79), h_row_offsets[7]);
+  EXPECT_EQ(static_cast<uint32_t>(95), h_row_offsets[8]);
+}
+
 TEST_F(CsvStateMachineTest, CanTransitionStateSegments)
 {
   using namespace cudf::io::detail;
 
-  EXPECT_EQ(csv_state::record_end, csv_state_segments().segments[0]);
+  EXPECT_EQ(csv_state::record_end, csv_state_superposition().segments[0]);
 }
 
 TEST_F(CsvStateMachineTest, CanTransitionCsvStates2)
 {
   using namespace cudf::io::detail;
-  auto a = csv_machine_state(5, csv_state::record_end);
-  auto b = csv_machine_state(2, csv_state::record_end);
+  auto a = csv_machine_state{csv_state::record_end, 67, 7, true};
+  auto b = csv_machine_state{csv_state::record_end, 32, 5, false};
 
   auto result = a + b;
 
-  EXPECT_EQ(static_cast<uint32_t>(7), result.position);
+  EXPECT_EQ(static_cast<uint32_t>(99), result.byte_count);
   EXPECT_EQ(csv_state::record_end, result.states);
-  EXPECT_EQ(csv_state::record_end, result.states);
+  EXPECT_EQ(static_cast<uint32_t>(12), result.row_count);
 }
 
 TEST_F(CsvStateMachineTest, CanTransitionCsvStates3)
 {
   using namespace cudf::io::detail;
 
-  auto a = csv_machine_state(4) + csv_token::comment + csv_token::other;
-  auto b = csv_machine_state(8) + csv_token::newline + csv_token::other;
+  auto a = csv_state_superposition() + csv_token::comment + csv_token::other;
+  auto b = csv_state_superposition() + csv_token::newline + csv_token::other;
 
   auto result = a + b;
 
-  EXPECT_EQ(static_cast<uint32_t>(16), result.position);
-  EXPECT_EQ(csv_state::field, result.states);
+  EXPECT_EQ(csv_state::field, result);
 }
 
 CUDF_TEST_PROGRAM_MAIN()
