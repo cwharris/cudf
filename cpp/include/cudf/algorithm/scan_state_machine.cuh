@@ -29,7 +29,7 @@ struct fsm_output {
   uint32_t output_count;
 
   template <bool output_enabled>
-  inline __device__ void emit(T value)
+  inline constexpr void emit(T value)
   {
     if (output_enabled) {
       // printf("bid(%i) tid(%i): output %i = %i\n",  //
@@ -72,7 +72,7 @@ struct agent {
     uint32_t const num_items_remaining = num_items - tile_offset;
 
     if (tile_idx < num_tiles - 1) {
-      consume_tile<false>(tile_idx, tile_offset, Policy::ITEMS_PER_TILE);
+      consume_tile<false>(tile_idx, tile_offset, num_items_remaining);
     } else {
       auto state = consume_tile<true>(tile_idx, tile_offset, num_items_remaining);
 
@@ -147,11 +147,11 @@ struct agent {
     //   printf("bid(%i) tid(%i): ===== 1 and halvfe =====\n", blockIdx.x, threadIdx.x);
     // }
 
-    for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
+    for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {  // remove the if
       if (thread_offset + i < num_items_remaining) {
         thread_state = step_op(thread_state, items[i]);
-      };
-    };
+      }
+    }
 
     // if (threadIdx.x == 0) {  //
     //   printf("bid(%i) tid(%i): ===== 2 =====\n", blockIdx.x, threadIdx.x);
@@ -180,7 +180,7 @@ struct agent {
         .ExclusiveScan(                                //
           thread_state,
           thread_state,
-          thread_state_seed,  // FISHY
+          thread_state_seed,
           join_op,
           block_state);
 
@@ -198,7 +198,7 @@ struct agent {
       Policy::StateBlockScan(temp_storage.state_scan)  //
         .ExclusiveScan(                                //
           thread_state,
-          thread_state,  // FISHY
+          thread_state,
           join_op,
           prefix_op);
 
