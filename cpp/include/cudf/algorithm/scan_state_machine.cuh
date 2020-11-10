@@ -97,11 +97,12 @@ struct dfa_output {
 template <typename Policy>
 struct agent {
   typename Policy::InputIterator d_input;
-  typename Policy::OutputStateIterator d_output_state;
-  typename Policy::OutputIterator d_output;
+  typename Policy::InOutStateIterator d_inout_state;
+  typename Policy::InOutAggregatesIterator d_inout_aggregates;
+  typename Policy::InOutOutputsIterator d_inout_outputs;
   uint32_t num_items;
-  typename Policy::StepOp step_op;
-  typename Policy::JoinOp join_op;
+  typename Policy::ScanStateOp scan_state_op;
+  typename Policy::ScanAggregateOp scan_aggregate_op;
   typename Policy::OutputOp output_op;
   typename Policy::StateTileState& state_tile_state;
   typename Policy::OutputTileState& output_tile_state;
@@ -120,8 +121,8 @@ struct agent {
 
       if (threadIdx.x == 0) {
         // printf("bid(%i) tid(%i): ===== final outputs =====\n", blockIdx.x, threadIdx.x);
-        *d_output_state = state.first;
-        *d_output       = state.second;
+        *d_inout_state   = state.first;
+        *d_inout_outputs = state.second;
         // printf("bid(%i) tid(%i): ===== final outputs - end =====\n", blockIdx.x, threadIdx.x);
       }
     }
@@ -138,6 +139,10 @@ struct agent {
       struct {
         typename Policy::StatePrefixCallback::TempStorage state_prefix;
         typename Policy::StateBlockScan::TempStorage state_scan;
+      };
+      struct {
+        typename Policy::AggregatePrefixCallback::TempStorage aggregate_prefix;
+        typename Policy::AggregateBlockScan::TempStorage aggregate_scan;
       };
       struct {
         typename Policy::OutputPrefixCallback::TempStorage output_prefix;
@@ -163,14 +168,14 @@ struct agent {
 
     // 2.A: Scan State
 
-    auto thread_state_seed        = *d_output_state;
-    auto const thread_output_seed = *d_output;
+    auto thread_state_seed        = *d_inout_state;
+    auto const thread_output_seed = *d_inout_outputs;
     auto thread_state             = thread_state_seed;
     auto thread_output            = thread_output_seed;
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {  // remove the if
       if (thread_offset + i < num_items_remaining) {
-        thread_state = step_op(thread_state, items[i]);
+        thread_state = scan_state_op(thread_state, items[i]);
       }
     }
 
@@ -181,7 +186,6 @@ struct agent {
     scan_state<IS_LAST_TILE>(temp_storage.state_prefix,  //
                              temp_storage.state_scan,
                              state_tile_state,
-                             join_op,
                              tile_idx,
                              thread_state_seed,
                              thread_state,
@@ -193,12 +197,12 @@ struct agent {
 
     // 2.C: Scan Output Count
 
-    thread_output     = *d_output;  // reset state gathering.
+    thread_output     = *d_inout_outputs;  // reset state gathering.
     thread_state_seed = thread_state;
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
-        auto next_state = step_op(thread_state, items[i]);
+        auto next_state = scan_state_op(thread_state, items[i]);
         thread_output   = output_op.operator()<false>(  //
           thread_output,
           thread_state,
@@ -227,7 +231,7 @@ struct agent {
     if (not is_first_pass) {
       for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
         if (thread_offset + i < num_items_remaining) {
-          auto next_state = step_op(thread_state, items[i]);
+          auto next_state = scan_state_op(thread_state, items[i]);
           thread_output   = output_op.operator()<true>(  //
             thread_output,
             thread_state,
@@ -246,7 +250,6 @@ struct agent {
     typename Policy::StatePrefixCallback::TempStorage& state_prefix,
     typename Policy::StateBlockScan::TempStorage& state_scan,
     typename Policy::StateTileState& state_tile_state,
-    typename Policy::JoinOp& join_op,
     uint32_t tile_idx,
     typename Policy::State const& thread_state_seed,
     typename Policy::State& thread_state,
@@ -258,7 +261,7 @@ struct agent {
           thread_state,
           thread_state,
           thread_state_seed,
-          join_op,
+          cub::Sum(),
           block_state);
 
       if (threadIdx.x == 0 and not IS_LAST_TILE) {  //
@@ -269,14 +272,14 @@ struct agent {
       auto prefix_op = Policy::StatePrefixCallback(  //
         state_tile_state,
         state_prefix,
-        join_op,
+        cub::Sum(),
         tile_idx);
 
       Policy::StateBlockScan(state_scan)  //
         .ExclusiveScan(                   //
           thread_state,
           thread_state,
-          join_op,
+          cub::Sum(),
           prefix_op);
 
       block_state = prefix_op.GetInclusivePrefix();
@@ -339,11 +342,12 @@ __global__ void initialization_pass_kernel(  //
 template <typename Policy>
 __global__ void execution_pass_kernel(  //
   typename Policy::InputIterator d_input,
-  typename Policy::OutputStateIterator d_output_state,
-  typename Policy::OutputIterator d_output,
+  typename Policy::InOutStateIterator d_inout_state,
+  typename Policy::InOutAggregatesIterator d_inout_aggregates,
+  typename Policy::InOutOutputsIterator d_inout_outputs,
   uint32_t num_items,
-  typename Policy::StepOp step_op,
-  typename Policy::JoinOp join_op,
+  typename Policy::ScanStateOp scan_state_op,
+  typename Policy::ScanAggregateOp scan_aggregate_op,
   typename Policy::OutputOp output_op,
   typename Policy::StateTileState state_tile_state,
   typename Policy::OutputTileState output_tile_state,
@@ -353,11 +357,12 @@ __global__ void execution_pass_kernel(  //
 {
   auto agent_instance = agent<Policy>{
     d_input,
-    d_output_state,
-    d_output,
+    d_inout_state,
+    d_inout_aggregates,
+    d_inout_outputs,
     num_items,
-    step_op,
-    join_op,
+    scan_state_op,
+    scan_aggregate_op,
     output_op,
     state_tile_state,
     output_tile_state,
@@ -370,10 +375,11 @@ __global__ void execution_pass_kernel(  //
 // ===== Policy ====================================================================================
 
 template <typename InputIterator_,
-          typename OutputStateIterator_,
-          typename OutputIterator_,
-          typename StateStepOp_,
-          typename StateJoinOp_,
+          typename InOutStateIterator_,
+          typename InOutAggregatesIterator_,
+          typename InOutOutputsIterator_,
+          typename StateScanStateOp_,
+          typename ScanAggregateOp_,
           typename OutputOp_>
 struct policy {
   static constexpr uint32_t THREADS_PER_INIT_BLOCK = 128;
@@ -381,19 +387,20 @@ struct policy {
   static constexpr uint32_t ITEMS_PER_THREAD       = 2;
   static constexpr uint32_t ITEMS_PER_TILE         = ITEMS_PER_THREAD * THREADS_PER_BLOCK;
 
-  using InputIterator       = InputIterator_;
-  using OutputStateIterator = OutputStateIterator_;
+  using InputIterator           = InputIterator_;
+  using InOutStateIterator      = InOutStateIterator_;
+  using InOutAggregatesIterator = InOutAggregatesIterator_;
+  using InOutOutputsIterator    = InOutOutputsIterator_;
 
-  using StepOp   = StateStepOp_;
-  using JoinOp   = StateJoinOp_;
-  using OutputOp = OutputOp_;
+  using ScanStateOp     = StateScanStateOp_;
+  using ScanAggregateOp = ScanAggregateOp_;
+  using OutputOp        = OutputOp_;
 
-  using OutputIterator = OutputIterator_;
-
-  using Input  = typename std::iterator_traits<InputIterator>::value_type;
-  using Offset = typename std::iterator_traits<InputIterator>::difference_type;
-  using State  = typename std::iterator_traits<OutputStateIterator>::value_type;
-  using Output = typename std::iterator_traits<OutputIterator>::value_type;
+  using Input     = typename std::iterator_traits<InputIterator>::value_type;
+  using Offset    = typename std::iterator_traits<InputIterator>::difference_type;
+  using State     = typename std::iterator_traits<InOutStateIterator>::value_type;
+  using Aggregate = typename std::iterator_traits<InOutAggregatesIterator>::value_type;
+  using Output    = typename std::iterator_traits<InOutOutputsIterator>::value_type;
 
   // Items Load
 
@@ -403,15 +410,28 @@ struct policy {
     ITEMS_PER_THREAD,
     cub::BlockLoadAlgorithm::BLOCK_LOAD_DIRECT>;
 
-  // State Scan
+  // Scan State
 
   using StateTileState      = cub::ScanTileState<State>;
-  using StatePrefixCallback = cub::TilePrefixCallbackOp<State, JoinOp, StateTileState>;
+  using StatePrefixCallback = cub::TilePrefixCallbackOp<State, cub::Sum, StateTileState>;
 
   using StateBlockScan = cub::BlockScan<  //
     State,
     THREADS_PER_BLOCK,
     cub::BlockScanAlgorithm::BLOCK_SCAN_RAKING>;
+
+  // Scan Aggregate
+
+  using AggregateTileState = cub::ScanTileState<Aggregate>;
+  using AggregatePrefixCallback =
+    cub::TilePrefixCallbackOp<Aggregate, cub::Sum, AggregateTileState>;
+
+  using AggregateBlockScan = cub::BlockScan<  //
+    Aggregate,
+    THREADS_PER_BLOCK,
+    cub::BlockScanAlgorithm::BLOCK_SCAN_RAKING>;
+
+  // Scan Output
 
   using OutputTileState      = cub::ScanTileState<Output>;
   using OutputPrefixCallback = cub::TilePrefixCallbackOp<Output, cub::Sum, OutputTileState>;
@@ -425,26 +445,33 @@ struct policy {
 // ===== Entry =====================================================================================
 
 template <typename InputIterator,
-          typename OutputStateIterator,
-          typename OutputIterator,
-          typename StepOp,
-          typename JoinOp,
+          typename InOutStateIterator,
+          typename InOutAggregatesIterator,
+          typename InOutOutputsIterator,
+          typename ScanStateOp,
+          typename ScanAggregateOp,
           typename OutputOp>
 void scan_state_machine(  //
   rmm::device_buffer& temp_storage,
   InputIterator d_in_begin,
   InputIterator d_in_end,
-  OutputStateIterator d_output_state,
-  OutputIterator d_output,
-  StepOp step_op,
-  JoinOp join_op,
+  InOutStateIterator d_inout_state,
+  InOutAggregatesIterator d_inout_aggregates,
+  InOutOutputsIterator d_inout_outputs,
+  ScanStateOp scan_state_op,
+  ScanAggregateOp scan_aggregate_op,
   OutputOp output_op,
   cudaStream_t stream = 0)
 {
   CUDF_FUNC_RANGE();
 
-  using Policy =
-    policy<InputIterator, OutputStateIterator, OutputIterator, StepOp, JoinOp, OutputOp>;
+  using Policy = policy<InputIterator,
+                        InOutStateIterator,
+                        InOutAggregatesIterator,
+                        InOutOutputsIterator,
+                        ScanStateOp,
+                        ScanAggregateOp,
+                        OutputOp>;
 
   uint32_t num_tiles = ceil_div(d_in_end - d_in_begin, Policy::ITEMS_PER_TILE);
 
@@ -502,11 +529,12 @@ void scan_state_machine(  //
 
     exec_kernel<<<tiles_per_pass, Policy::THREADS_PER_BLOCK, 0, stream>>>(  //
       d_in_begin,
-      d_output_state,
-      d_output,
+      d_inout_state,
+      d_inout_aggregates,
+      d_inout_outputs,
       d_in_end - d_in_begin,
-      step_op,
-      join_op,
+      scan_state_op,
+      scan_aggregate_op,
       output_op,
       state_tile_state,
       output_tile_state,

@@ -62,7 +62,7 @@ struct csv_machine_state {
   uint32_t row_count   = 0;
   bool is_record_start = false;
 
-  inline constexpr csv_machine_state operator+(csv_machine_state rhs)
+  inline constexpr csv_machine_state operator+(csv_machine_state const& rhs) const
   {
     return {
       state + rhs.state,
@@ -92,6 +92,13 @@ struct csv_fsm_state_scan_op {
 
 struct csv_aggregates {
   inline constexpr csv_aggregates operator+(csv_aggregates rhs) const { return *this; }
+};
+
+struct csv_aggregates_scan_op {
+  inline constexpr csv_aggregates operator()(csv_machine_state prev, csv_machine_state current)
+  {
+    return {};
+  }
 };
 
 struct csv_fsm_state_join_op {
@@ -168,15 +175,13 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
   cudaStream_t stream                 = 0,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
 {
-  auto state_scan_op = csv_fsm_state_scan_op{token_options};
-  auto state_join_op = csv_fsm_state_join_op{};
-  // auto aggregates_scan_op   = csv_aggregates_scan_op{};
-  // auto aggregates_join_op   = csv_aggregates_join_op{};
-  auto output_op = csv_fsm_output_op{range_options};
+  auto state_scan_op      = csv_fsm_state_scan_op{token_options};
+  auto aggregates_scan_op = csv_aggregates_scan_op{};
+  auto output_op          = csv_fsm_output_op{range_options};
 
-  auto d_state = rmm::device_scalar<csv_machine_state>(stream, mr);
-  // auto d_aggregates = rmm::device_scalar<csv_outputs>(stream, mr);
-  auto d_outputs = rmm::device_scalar<csv_outputs>(stream, mr);
+  auto d_state      = rmm::device_scalar<csv_machine_state>(stream, mr);
+  auto d_aggregates = rmm::device_scalar<csv_outputs>(stream, mr);
+  auto d_outputs    = rmm::device_scalar<csv_outputs>(stream, mr);
 
   rmm::device_buffer temp_memory;
 
@@ -184,10 +189,10 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
                      input.begin(),
                      input.end(),
                      d_state.data(),
-                     //  d_aggregates.data(),
+                     d_aggregates.data(),
                      d_outputs.data(),
                      state_scan_op,
-                     state_join_op,
+                     aggregates_scan_op,
                      output_op,
                      stream);
 
@@ -202,17 +207,17 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
 
   // reset outputs before second call.
   d_state.set_value({}, stream);
-  // d_aggregates.set_value({}, stream);
+  d_aggregates.set_value({}, stream);
   d_outputs.set_value(h_output, stream);
 
   scan_state_machine(temp_memory,
                      input.begin(),
                      input.end(),
                      d_state.data(),
-                     //  d_aggregates.data(),
+                     d_aggregates.data(),
                      d_outputs.data(),
                      state_scan_op,
-                     state_join_op,
+                     aggregates_scan_op,
                      output_op,
                      stream);
 

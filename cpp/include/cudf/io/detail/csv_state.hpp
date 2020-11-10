@@ -7,6 +7,16 @@ namespace detail {
 
 // ===== STATES AND TOKENS =====
 
+enum class csv_state : uint8_t {
+  record_end,
+  comment,
+  field,
+  field_end,
+  field_quoted,
+  field_quoted_quote,
+  error,
+};
+
 enum class csv_token : uint8_t {
   other,
   delimiter,
@@ -15,23 +25,13 @@ enum class csv_token : uint8_t {
   comment,
 };
 
-enum class csv_state : uint8_t {
-  record_end,
-  comment,
-  field,
-  field_end,
-  field_quoted,
-  field_quoted_quote,
-  none,
-};
-
 // ===== TRANSITIONS =====
 
 namespace {
 
 template <csv_state, csv_token>
 struct transition {
-  static constexpr csv_state destination = csv_state::none;
+  static constexpr csv_state destination = csv_state::error;
 };
 
 #ifndef TRANSITION_DEFAULT
@@ -97,10 +97,8 @@ inline constexpr csv_state get_next_state(csv_token token)
       return get_next_state<state, csv_token::comment>();
   }
 
-  return csv_state::none;
+  return csv_state::error;
 }
-
-}  // namespace
 
 inline constexpr csv_state get_next_state(csv_state state, csv_token token)
 {
@@ -119,12 +117,14 @@ inline constexpr csv_state get_next_state(csv_state state, csv_token token)
       return get_next_state<csv_state::field_quoted>(token);
     case (csv_state::field_quoted_quote):  //
       return get_next_state<csv_state::field_quoted_quote>(token);
-    case (csv_state::none):  //
-      return csv_state::none;
+    case (csv_state::error):  //
+      return csv_state::error;
   }
 
-  return csv_state::none;
+  return csv_state::error;
 }
+
+}  // namespace
 
 inline constexpr csv_state operator+(csv_state state, csv_token token)
 {
