@@ -73,11 +73,7 @@ struct csv_machine_state {
   }
 };
 
-struct csv_fsm_seed_op {
-  inline constexpr csv_machine_state operator()(uint32_t position) { return csv_machine_state(); }
-};
-
-struct csv_fsm_scan_op {
+struct csv_fsm_state_scan_op {
   csv_token_options tokens_options;
   inline constexpr csv_machine_state operator()(csv_machine_state prev, char current_char)
   {
@@ -94,8 +90,26 @@ struct csv_fsm_scan_op {
   }
 };
 
-struct csv_fsm_join_op {
+struct csv_aggregates {
+  inline constexpr csv_aggregates operator+(csv_aggregates rhs) const { return *this; }
+};
+
+struct csv_fsm_state_join_op {
   inline constexpr csv_machine_state operator()(csv_machine_state lhs, csv_machine_state rhs)
+  {
+    return lhs + rhs;
+  }
+};
+
+struct csv_fsm_aggregates_scan_op {
+  inline constexpr csv_aggregates operator()(csv_machine_state prev, csv_machine_state current)
+  {
+    return {};
+  }
+};
+
+struct csv_fsm_aggregates_join_op {
+  inline constexpr csv_aggregates operator()(csv_aggregates lhs, csv_aggregates rhs)
   {
     return lhs + rhs;
   }
@@ -131,13 +145,13 @@ struct csv_fsm_output_op {
         out.record_offsets.output_count);
     }
 
-    if (next.byte_count - 1 < range.bytes_begin) { return out; }
-    if (next.byte_count - 1 >= range.bytes_end) { return out; }
+    // if (next.byte_count - 1 < range.bytes_begin) { return out; }
+    // if (next.byte_count - 1 >= range.bytes_end) { return out; }
 
     if (not next.is_record_start) { return out; }
 
-    if (next.row_count < range.rows_begin) { return out; }
-    if (next.row_count >= range.rows_end) { return out; }
+    // if (next.row_count < range.rows_begin) { return out; }
+    // if (next.row_count >= range.rows_end) { return out; }
 
     out.record_offsets.emit<output_enabled>(next.byte_count - 1);
 
@@ -154,29 +168,31 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
   cudaStream_t stream                 = 0,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
 {
-  auto seed_op   = csv_fsm_seed_op{};
-  auto scan_op   = csv_fsm_scan_op{token_options};
-  auto join_op   = csv_fsm_join_op{};
+  auto state_scan_op = csv_fsm_state_scan_op{token_options};
+  auto state_join_op = csv_fsm_state_join_op{};
+  // auto aggregates_scan_op   = csv_aggregates_scan_op{};
+  // auto aggregates_join_op   = csv_aggregates_join_op{};
   auto output_op = csv_fsm_output_op{range_options};
 
-  auto d_output_state = rmm::device_scalar<csv_machine_state>(csv_machine_state(), stream, mr);
-  auto d_output       = rmm::device_scalar<csv_outputs>(csv_outputs(), stream, mr);
+  auto d_state = rmm::device_scalar<csv_machine_state>(stream, mr);
+  // auto d_aggregates = rmm::device_scalar<csv_outputs>(stream, mr);
+  auto d_outputs = rmm::device_scalar<csv_outputs>(stream, mr);
 
   rmm::device_buffer temp_memory;
 
   scan_state_machine(temp_memory,
                      input.begin(),
                      input.end(),
-                     d_output_state.data(),
-                     d_output.data(),
-                     seed_op,
-                     scan_op,
-                     join_op,
+                     d_state.data(),
+                     //  d_aggregates.data(),
+                     d_outputs.data(),
+                     state_scan_op,
+                     state_join_op,
                      output_op,
                      stream);
 
-  auto h_output = d_output.value(stream);
-  // auto h_output_state = d_output.value(stream);
+  auto h_output = d_outputs.value(stream);
+  // auto h_output_state = d_outputs.value(stream);
 
   auto d_record_offsets =
     rmm::device_uvector<uint32_t>(h_output.record_offsets.output_count, stream, mr);
@@ -184,16 +200,19 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
   h_output                              = {};
   h_output.record_offsets.output_buffer = d_record_offsets.data();
 
-  d_output.set_value(h_output, stream);
+  // reset outputs before second call.
+  d_state.set_value({}, stream);
+  // d_aggregates.set_value({}, stream);
+  d_outputs.set_value(h_output, stream);
 
   scan_state_machine(temp_memory,
                      input.begin(),
                      input.end(),
-                     d_output_state.data(),
-                     d_output.data(),
-                     seed_op,
-                     scan_op,
-                     join_op,
+                     d_state.data(),
+                     //  d_aggregates.data(),
+                     d_outputs.data(),
+                     state_scan_op,
+                     state_join_op,
                      output_op,
                      stream);
 

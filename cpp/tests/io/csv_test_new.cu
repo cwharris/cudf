@@ -64,47 +64,6 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStates)
   EXPECT_EQ(static_cast<uint32_t>(95), h_row_offsets[8]);
 }
 
-TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithRowRange)
-{
-  auto input = std::string(
-    "hello, world\n"
-    "and,\"not\nh,ing\"\n"
-    "new\n"
-    "hello, world\n"
-    "and,\"not\nh,ing\"\n"
-    "new\n"
-    "hello, world\n"
-    "and,\"not\nh,ing\"\n"
-    "new\n");
-
-  auto d_input = rmm::device_vector<char>(input.c_str(), input.c_str() + input.size());
-
-  auto d_row_offsets = cudf::io::detail::csv_gather_row_offsets(d_input);
-
-  ASSERT_EQ(static_cast<uint32_t>(9), d_row_offsets.size());
-
-  auto h_row_offsets = std::vector<uint32_t>(d_row_offsets.size());
-
-  cudaStreamSynchronize(0);
-
-  cudaMemcpy(h_row_offsets.data(),  //
-             d_row_offsets.data(),
-             d_row_offsets.size() * sizeof(uint32_t),
-             cudaMemcpyDeviceToHost);
-
-  EXPECT_EQ(static_cast<uint32_t>(0), h_row_offsets[0]);
-  EXPECT_EQ(static_cast<uint32_t>(13), h_row_offsets[1]);
-  EXPECT_EQ(static_cast<uint32_t>(29), h_row_offsets[2]);
-
-  EXPECT_EQ(static_cast<uint32_t>(33), h_row_offsets[3]);
-  EXPECT_EQ(static_cast<uint32_t>(46), h_row_offsets[4]);
-  EXPECT_EQ(static_cast<uint32_t>(62), h_row_offsets[5]);
-
-  EXPECT_EQ(static_cast<uint32_t>(66), h_row_offsets[6]);
-  EXPECT_EQ(static_cast<uint32_t>(79), h_row_offsets[7]);
-  EXPECT_EQ(static_cast<uint32_t>(95), h_row_offsets[8]);
-}
-
 TEST_F(CsvStateMachineTest, CanTransitionStateSegments)
 {
   using namespace cudf::io::detail;

@@ -100,7 +100,6 @@ struct agent {
   typename Policy::OutputStateIterator d_output_state;
   typename Policy::OutputIterator d_output;
   uint32_t num_items;
-  typename Policy::SeedOp seed_op;
   typename Policy::StepOp step_op;
   typename Policy::JoinOp join_op;
   typename Policy::OutputOp output_op;
@@ -164,7 +163,7 @@ struct agent {
 
     // 2.A: Scan State
 
-    auto thread_state_seed        = seed_op(tile_offset + thread_offset);
+    auto thread_state_seed        = *d_output_state;
     auto const thread_output_seed = *d_output;
     auto thread_state             = thread_state_seed;
     auto thread_output            = thread_output_seed;
@@ -343,7 +342,6 @@ __global__ void execution_pass_kernel(  //
   typename Policy::OutputStateIterator d_output_state,
   typename Policy::OutputIterator d_output,
   uint32_t num_items,
-  typename Policy::SeedOp seed_op,
   typename Policy::StepOp step_op,
   typename Policy::JoinOp join_op,
   typename Policy::OutputOp output_op,
@@ -358,7 +356,6 @@ __global__ void execution_pass_kernel(  //
     d_output_state,
     d_output,
     num_items,
-    seed_op,
     step_op,
     join_op,
     output_op,
@@ -375,7 +372,6 @@ __global__ void execution_pass_kernel(  //
 template <typename InputIterator_,
           typename OutputStateIterator_,
           typename OutputIterator_,
-          typename StateSeedOp_,
           typename StateStepOp_,
           typename StateJoinOp_,
           typename OutputOp_>
@@ -388,7 +384,6 @@ struct policy {
   using InputIterator       = InputIterator_;
   using OutputStateIterator = OutputStateIterator_;
 
-  using SeedOp   = StateSeedOp_;
   using StepOp   = StateStepOp_;
   using JoinOp   = StateJoinOp_;
   using OutputOp = OutputOp_;
@@ -432,7 +427,6 @@ struct policy {
 template <typename InputIterator,
           typename OutputStateIterator,
           typename OutputIterator,
-          typename SeedOp,
           typename StepOp,
           typename JoinOp,
           typename OutputOp>
@@ -442,7 +436,6 @@ void scan_state_machine(  //
   InputIterator d_in_end,
   OutputStateIterator d_output_state,
   OutputIterator d_output,
-  SeedOp seed_op,
   StepOp step_op,
   JoinOp join_op,
   OutputOp output_op,
@@ -451,7 +444,7 @@ void scan_state_machine(  //
   CUDF_FUNC_RANGE();
 
   using Policy =
-    policy<InputIterator, OutputStateIterator, OutputIterator, SeedOp, StepOp, JoinOp, OutputOp>;
+    policy<InputIterator, OutputStateIterator, OutputIterator, StepOp, JoinOp, OutputOp>;
 
   uint32_t num_tiles = ceil_div(d_in_end - d_in_begin, Policy::ITEMS_PER_TILE);
 
@@ -512,7 +505,6 @@ void scan_state_machine(  //
       d_output_state,
       d_output,
       d_in_end - d_in_begin,
-      seed_op,
       step_op,
       join_op,
       output_op,
