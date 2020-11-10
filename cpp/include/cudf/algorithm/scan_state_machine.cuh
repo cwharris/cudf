@@ -121,31 +121,12 @@ struct agent {
         .Load(d_input + tile_offset, items);
     }
 
-    // if (threadIdx.x == 0) {  //
-    //   printf("bid(%i) tid(%i): ===== 1 =====\n", blockIdx.x, threadIdx.x);
-    // }
-
     __syncthreads();
-
-    // Scan Inputs per Thread
 
     auto thread_state_seed        = seed_op(tile_offset + thread_offset);
     auto const thread_output_seed = *d_output;
     auto thread_state             = thread_state_seed;
     auto thread_output            = thread_output_seed;
-
-    // if (thread_offset < num_items_remaining) {
-    //   printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
-    //          blockIdx.x,
-    //          threadIdx.x,
-    //          thread_state.sum,
-    //          thread_output.a.output_count,
-    //          thread_output.b.output_count);
-    // }
-
-    // if (threadIdx.x == 0) {  //
-    //   printf("bid(%i) tid(%i): ===== 1 and halvfe =====\n", blockIdx.x, threadIdx.x);
-    // }
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {  // remove the if
       if (thread_offset + i < num_items_remaining) {
@@ -153,78 +134,20 @@ struct agent {
       }
     }
 
-    // if (threadIdx.x == 0) {  //
-    //   printf("bid(%i) tid(%i): ===== 2 =====\n", blockIdx.x, threadIdx.x);
-    // }
-
     __syncthreads();
-
-    // if (thread_offset < num_items_remaining) {
-    //   printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
-    //          blockIdx.x,
-    //          threadIdx.x,
-    //          thread_state.sum,
-    //          thread_output.a.output_count,
-    //          thread_output.b.output_count);
-    // }
-
-    // Scan Inputs
 
     typename Policy::State block_state;
 
-    if (tile_idx == 0) {
-      // if (threadIdx.x == 0) { printf("bid(%i) tid(%i): ===== 3 =====\n", blockIdx.x,
-      // threadIdx.x); }
-
-      Policy::StateBlockScan(temp_storage.state_scan)  //
-        .ExclusiveScan(                                //
-          thread_state,
-          thread_state,
-          thread_state_seed,
-          join_op,
-          block_state);
-
-      if (threadIdx.x == 0 and not IS_LAST_TILE) {  //
-        state_tile_state.SetInclusive(0, block_state);
-      }
-
-    } else {
-      auto prefix_op = Policy::StatePrefixCallback(  //
-        state_tile_state,
-        temp_storage.state_prefix,
-        join_op,
-        tile_idx);
-
-      Policy::StateBlockScan(temp_storage.state_scan)  //
-        .ExclusiveScan(                                //
-          thread_state,
-          thread_state,
-          join_op,
-          prefix_op);
-
-      block_state = prefix_op.GetInclusivePrefix();
-    }
-
-    // if (threadIdx.x == 0) {  //
-    //   printf("bid(%i) tid(%i): ===== 3 =====\n", blockIdx.x, threadIdx.x);
-    // }
+    scan_state<IS_LAST_TILE>(temp_storage.state_prefix,  //
+                             temp_storage.state_scan,
+                             state_tile_state,
+                             join_op,
+                             tile_idx,
+                             thread_state_seed,
+                             thread_state,
+                             block_state);
 
     __syncthreads();
-    // if (thread_offset < num_items_remaining) {
-    //   printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
-    //          blockIdx.x,
-    //          threadIdx.x,
-    //          thread_state.sum,
-    //          thread_output.a.output_count,
-    //          thread_output.b.output_count);
-    // }
-
-    // if (threadIdx.x == 0) {                                     //
-    //   printf("bid(%i) tid(%i): block: state (%i) out (x x)\n",  //
-    //          blockIdx.x,
-    //          threadIdx.x,
-    //          block_state.sum);
-    // }
 
     // Count Outputs
 
@@ -243,88 +166,21 @@ struct agent {
       }
     }
 
-    // if (threadIdx.x == 0) {  //
-    //   printf("bid(%i) tid(%i): ===== 4 =====\n", blockIdx.x, threadIdx.x);
-    // }
-
-    // __syncthreads();
-    // if (thread_offset < num_items_remaining) {
-    //   printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
-    //          blockIdx.x,
-    //          threadIdx.x,
-    //          thread_state.sum,
-    //          thread_output.a.output_count,
-    //          thread_output.b.output_count);
-    // }
-
-    // if (threadIdx.x == 0) {                                     //
-    //   printf("bid(%i) tid(%i): block: state (%i) out (x x)\n",  //
-    //          blockIdx.x,
-    //          threadIdx.x,
-    //          block_state.sum);
-    // }
-
     typename Policy::Output block_output;
 
-    if (tile_idx == 0) {
-      Policy::OutputBlockScan(temp_storage.output_scan)  //
-        .ExclusiveScan(                                  //
-          thread_output,
-          thread_output,
-          *d_output,
-          cub::Sum(),
-          block_output);
-
-      if (threadIdx.x == 0 and not IS_LAST_TILE) {
-        output_tile_state.SetInclusive(0, block_output);
-      }
-    } else {
-      auto prefix_op = Policy::OutputPrefixCallback(  //
-        output_tile_state,
-        temp_storage.output_prefix,
-        cub::Sum(),
-        tile_idx);
-
-      Policy::OutputBlockScan(temp_storage.output_scan)  //
-        .ExclusiveScan(                                  //
-          thread_output,
-          thread_output,
-          cub::Sum(),
-          prefix_op);
-
-      block_output = prefix_op.GetInclusivePrefix();
-    }
+    scan_output<IS_LAST_TILE>(temp_storage.output_prefix,  //
+                              temp_storage.output_scan,
+                              output_tile_state,
+                              tile_idx,
+                              thread_output_seed,
+                              thread_output,
+                              block_output);
 
     __syncthreads();
 
     thread_state = thread_state_seed;
 
-    // if (threadIdx.x == 0) {  //
-    //   printf("bid(%i) tid(%i): ===== 5 =====\n", blockIdx.x, threadIdx.x);
-    // }
-
-    // __syncthreads();
-    // if (thread_offset < num_items_remaining) {
-    //   printf("bid(%i) tid(%i): thread: state (%i) out (%i %i)\n",  //
-    //          blockIdx.x,
-    //          threadIdx.x,
-    //          thread_state.sum,
-    //          thread_output.a.output_count,
-    //          thread_output.b.output_count);
-    // }
-
-    // if (threadIdx.x == 0) {                                       //
-    //   printf("bid(%i) tid(%i): block: state (%i) out (%i %i)\n",  //
-    //          blockIdx.x,
-    //          threadIdx.x,
-    //          block_state.sum,
-    //          block_output.a.output_count,
-    //          block_output.b.output_count);
-    // }
-
     // Collect Outputs
-
-    // thread_state = thread_state_seed;
 
     if (not is_first_pass) {
       for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
@@ -340,11 +196,89 @@ struct agent {
       }
     }
 
-    // if (threadIdx.x == 0) {  //
-    //   printf("bid(%i) tid(%i): ===== 6 =====\n", blockIdx.x, threadIdx.x);
-    // }
+    return {block_state, block_output};
+  }
 
-    return {block_state, block_output};  // also need to output block_output
+  template <bool IS_LAST_TILE>
+  static __device__ void scan_state(  //
+    typename Policy::StatePrefixCallback::TempStorage state_prefix,
+    typename Policy::StateBlockScan::TempStorage state_scan,
+    typename Policy::StateTileState state_tile_state,
+    typename Policy::JoinOp join_op,
+    uint32_t tile_idx,
+    typename Policy::State const& thread_state_seed,
+    typename Policy::State& thread_state,
+    typename Policy::State& block_state)
+  {
+    if (tile_idx == 0) {
+      Policy::StateBlockScan(state_scan)  //
+        .ExclusiveScan(                   //
+          thread_state,
+          thread_state,
+          thread_state_seed,
+          join_op,
+          block_state);
+
+      if (threadIdx.x == 0 and not IS_LAST_TILE) {  //
+        state_tile_state.SetInclusive(0, block_state);
+      }
+
+    } else {
+      auto prefix_op = Policy::StatePrefixCallback(  //
+        state_tile_state,
+        state_prefix,
+        join_op,
+        tile_idx);
+
+      Policy::StateBlockScan(state_scan)  //
+        .ExclusiveScan(                   //
+          thread_state,
+          thread_state,
+          join_op,
+          prefix_op);
+
+      block_state = prefix_op.GetInclusivePrefix();
+    }
+  }
+
+  template <bool IS_LAST_TILE>
+  static __device__ void scan_output(  //
+    typename Policy::OutputPrefixCallback::TempStorage output_prefix,
+    typename Policy::OutputBlockScan::TempStorage output_scan,
+    typename Policy::OutputTileState output_tile_state,
+    uint32_t tile_idx,
+    typename Policy::Output const& thread_output_seed,
+    typename Policy::Output& thread_output,
+    typename Policy::Output& block_output)
+  {
+    if (tile_idx == 0) {
+      Policy::OutputBlockScan(output_scan)  //
+        .ExclusiveScan(                     //
+          thread_output,
+          thread_output,
+          thread_output_seed,
+          cub::Sum(),
+          block_output);
+
+      if (threadIdx.x == 0 and not IS_LAST_TILE) {
+        output_tile_state.SetInclusive(0, block_output);
+      }
+    } else {
+      auto prefix_op = Policy::OutputPrefixCallback(  //
+        output_tile_state,
+        output_prefix,
+        cub::Sum(),
+        tile_idx);
+
+      Policy::OutputBlockScan(output_scan)  //
+        .ExclusiveScan(                     //
+          thread_output,
+          thread_output,
+          cub::Sum(),
+          prefix_op);
+
+      block_output = prefix_op.GetInclusivePrefix();
+    }
   }
 };
 
