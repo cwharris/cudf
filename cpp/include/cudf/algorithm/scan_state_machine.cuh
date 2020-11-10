@@ -167,7 +167,7 @@ struct agent {
 
     __syncthreads();
 
-    // 2.A: Scan State
+    // 2: Scan State
 
     auto thread_state_seed           = *d_inout_state;
     auto const thread_aggregate_seed = *d_inout_aggregates;
@@ -199,7 +199,19 @@ struct agent {
 
     __syncthreads();
 
-    // 2.B: Scan Aggregate
+    // 3: Scan Aggregate
+
+    // TODO: scan the seed state on the first tile
+    // if (tile_idx == 0) {
+    //   thread_aggregate = scan_aggregate_op(thread_aggregate, thread_state_seed);
+    // }
+
+    for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
+      if (thread_offset + i < num_items_remaining) {
+        thread_state     = scan_state_op(thread_state, items[i]);
+        thread_aggregate = scan_aggregate_op(thread_aggregate, thread_state);
+      }
+    }
 
     typename Policy::Aggregate block_aggregates;
 
@@ -216,22 +228,30 @@ struct agent {
 
     __syncthreads();
 
-    // 2.C: Scan Output Count
+    // 4: Scan Output Count
 
     thread_output     = *d_inout_outputs;  // reset state gathering.
     thread_state_seed = thread_state;
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
-        auto next_state = scan_state_op(thread_state, items[i]);
-        thread_output   = output_op.operator()<false>(  //
-          thread_output,
-          thread_state,
-          next_state,
-          items[i]);
-        thread_state    = next_state;
+        thread_state     = scan_state_op(thread_state, items[i]);
+        thread_aggregate = scan_aggregate_op(thread_aggregate, thread_state);
+        thread_output    = output_op.operator()<false>(thread_output, thread_aggregate);
       }
     }
+
+    // for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
+    //   if (thread_offset + i < num_items_remaining) {
+    //     auto next_state = scan_state_op(thread_state, items[i]);
+    //     thread_output   = output_op.operator()<false>(  //
+    //       thread_output,
+    //       thread_state,
+    //       next_state,
+    //       items[i]);
+    //     thread_state    = next_state;
+    //   }
+    // }
 
     typename Policy::Output block_output;
 
@@ -255,13 +275,9 @@ struct agent {
     if (not is_first_pass) {
       for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
         if (thread_offset + i < num_items_remaining) {
-          auto next_state = scan_state_op(thread_state, items[i]);
-          thread_output   = output_op.operator()<true>(  //
-            thread_output,
-            thread_state,
-            next_state,
-            items[i]);
-          thread_state    = next_state;
+          thread_state     = scan_state_op(thread_state, items[i]);
+          thread_aggregate = scan_aggregate_op(thread_aggregate, thread_state);
+          thread_output    = output_op.operator()<true>(thread_output, thread_aggregate);
         }
       }
     }

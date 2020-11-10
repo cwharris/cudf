@@ -91,34 +91,18 @@ struct csv_fsm_state_scan_op {
 };
 
 struct csv_aggregates {
-  inline constexpr csv_aggregates operator+(csv_aggregates rhs) const { return *this; }
+  csv_machine_state machine_state;
+  inline constexpr csv_aggregates operator+(csv_aggregates const rhs) const
+  {
+    return {rhs.machine_state};
+  };
 };
 
 struct csv_aggregates_scan_op {
-  inline constexpr csv_aggregates operator()(csv_machine_state prev, csv_machine_state current)
+  inline constexpr csv_aggregates operator()(csv_aggregates const agg,
+                                             csv_machine_state const state) const
   {
-    return {};
-  }
-};
-
-struct csv_fsm_state_join_op {
-  inline constexpr csv_machine_state operator()(csv_machine_state lhs, csv_machine_state rhs)
-  {
-    return lhs + rhs;
-  }
-};
-
-struct csv_fsm_aggregates_scan_op {
-  inline constexpr csv_aggregates operator()(csv_machine_state prev, csv_machine_state current)
-  {
-    return {};
-  }
-};
-
-struct csv_fsm_aggregates_join_op {
-  inline constexpr csv_aggregates operator()(csv_aggregates lhs, csv_aggregates rhs)
-  {
-    return lhs + rhs;
+    return {state};
   }
 };
 
@@ -133,34 +117,33 @@ struct csv_fsm_output_op {
   csv_range_options range;
 
   template <bool output_enabled>
-  inline __device__ csv_outputs
-  operator()(csv_outputs out, csv_machine_state prev, csv_machine_state next, char current_char)
+  inline __device__ csv_outputs operator()(csv_outputs out, csv_aggregates agg)
   {
-    if (output_enabled) {
-      printf(
-        "bid(%2i) tid(%2i): byte(%-4i) char(%2c) state(%i - %i) range(%i, %i) count(%2i) "
-        "out(%2i)\n ",
-        blockIdx.x,
-        threadIdx.x,
-        next.byte_count,
-        current_char,
-        prev.state.states[0],
-        next.state.states[0],
-        range.bytes_begin,
-        range.bytes_end,
-        next.row_count,
-        out.record_offsets.output_count);
-    }
+    // if (output_enabled) {
+    //   printf(
+    //     "bid(%2i) tid(%2i): byte(%-4i) char(%2c) state(%i - %i) range(%i, %i) count(%2i) "
+    //     "out(%2i)\n ",
+    //     blockIdx.x,
+    //     threadIdx.x,
+    //     next.byte_count,
+    //     current_char,
+    //     prev.state.states[0],
+    //     next.state.states[0],
+    //     range.bytes_begin,
+    //     range.bytes_end,
+    //     next.row_count,
+    //     out.record_offsets.output_count);
+    // }
 
     // if (next.byte_count - 1 < range.bytes_begin) { return out; }
     // if (next.byte_count - 1 >= range.bytes_end) { return out; }
 
-    if (not next.is_record_start) { return out; }
+    if (not agg.machine_state.is_record_start) { return out; }
 
     // if (next.row_count < range.rows_begin) { return out; }
     // if (next.row_count >= range.rows_end) { return out; }
 
-    out.record_offsets.emit<output_enabled>(next.byte_count - 1);
+    out.record_offsets.emit<output_enabled>(agg.machine_state.byte_count - 1);
 
     return out;
   }
@@ -180,7 +163,7 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
   auto output_op          = csv_fsm_output_op{range_options};
 
   auto d_state      = rmm::device_scalar<csv_machine_state>(stream, mr);
-  auto d_aggregates = rmm::device_scalar<csv_outputs>(stream, mr);
+  auto d_aggregates = rmm::device_scalar<csv_aggregates>(stream, mr);
   auto d_outputs    = rmm::device_scalar<csv_outputs>(stream, mr);
 
   rmm::device_buffer temp_memory;

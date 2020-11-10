@@ -33,6 +33,7 @@ struct simple_state {
 };
 
 struct simple_aggregate {
+  uint32_t sum;
   inline constexpr simple_aggregate operator+(simple_aggregate const rhs) const { return *this; }
 };
 
@@ -43,28 +44,23 @@ struct simple_scan_state_op {
   }
 };
 struct simple_scan_aggregates_op {
-  inline constexpr simple_aggregate operator()(  //
-    simple_aggregate const agg,
-    simple_state const state) const
+  inline constexpr simple_aggregate operator()(simple_aggregate agg, simple_state state) const
   {
-    return {};
+    return {state.sum};
   }
 };
 
 struct simple_output_op {
   template <bool output_enabled>
-  inline constexpr simple_output operator()(simple_output out,
-                                            simple_state prev,
-                                            simple_state next,
-                                            uint32_t rhs) const
+  inline constexpr simple_output operator()(simple_output out, simple_aggregate const agg)
   {
-    if (prev.sum % 3 == 0) { out.a.emit<output_enabled>(prev.sum); }
-    if (prev.sum % 2 == 0) { out.b.emit<output_enabled>(prev.sum * 2.0); }
+    if (agg.sum % 3 == 0) { out.a.emit<output_enabled>(agg.sum); }
+    if (agg.sum % 2 == 0) { out.b.emit<output_enabled>(agg.sum * 2.0); }
 
     return out;
   }
 
-  // TODO: add a "final state" operator
+  // TODO: add a "final state" operator?
 };
 
 TEST_F(ScanStateMachineTest, CanScanSimpleState)
@@ -156,11 +152,11 @@ TEST_F(ScanStateMachineTest, CanScanSimpleState)
              cudaMemcpyDeviceToHost);
 
   for (uint32_t i = 0; i < h_output_a.size(); i++) {
-    EXPECT_EQ(static_cast<uint32_t>(i * 3), h_output_a[i]);
+    EXPECT_EQ(static_cast<uint32_t>(i * 3) + 3, h_output_a[i]);
   }
 
   for (uint32_t i = 0; i < h_output_b.size(); i++) {
-    ASSERT_EQ(static_cast<double>(i * 4.0), h_output_b[i]);
+    ASSERT_EQ(static_cast<double>(i * 4.0) + 8, h_output_b[i]);
   }
 }
 
