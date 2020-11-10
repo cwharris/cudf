@@ -33,7 +33,7 @@ struct simple_state {
 };
 
 struct simple_aggregate {
-  simple_aggregate operator+(simple_aggregate const rhs) const { return *this; }
+  inline constexpr simple_aggregate operator+(simple_aggregate const rhs) const { return *this; }
 };
 
 struct simple_scan_state_op {

@@ -105,6 +105,7 @@ struct agent {
   typename Policy::ScanAggregateOp scan_aggregate_op;
   typename Policy::OutputOp output_op;
   typename Policy::StateTileState& state_tile_state;
+  typename Policy::AggregateTileState& aggregates_tile_state;
   typename Policy::OutputTileState& output_tile_state;
   bool is_first_pass;
 
@@ -168,10 +169,12 @@ struct agent {
 
     // 2.A: Scan State
 
-    auto thread_state_seed        = *d_inout_state;
-    auto const thread_output_seed = *d_inout_outputs;
-    auto thread_state             = thread_state_seed;
-    auto thread_output            = thread_output_seed;
+    auto thread_state_seed           = *d_inout_state;
+    auto const thread_aggregate_seed = *d_inout_aggregates;
+    auto const thread_output_seed    = *d_inout_outputs;
+    auto thread_state                = thread_state_seed;
+    auto thread_aggregate            = thread_aggregate_seed;
+    auto thread_output               = thread_output_seed;
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {  // remove the if
       if (thread_offset + i < num_items_remaining) {
@@ -183,17 +186,35 @@ struct agent {
 
     typename Policy::State block_state;
 
-    scan_state<IS_LAST_TILE>(temp_storage.state_prefix,  //
-                             temp_storage.state_scan,
-                             state_tile_state,
-                             tile_idx,
-                             thread_state_seed,
-                             thread_state,
-                             block_state);
+    scan_intermediates<IS_LAST_TILE,
+                       typename Policy::StateBlockScan,
+                       typename Policy::StatePrefixCallback>(  //
+      temp_storage.state_prefix,
+      temp_storage.state_scan,
+      state_tile_state,
+      tile_idx,
+      thread_state_seed,
+      thread_state,
+      block_state);
 
     __syncthreads();
 
     // 2.B: Scan Aggregate
+
+    typename Policy::Aggregate block_aggregates;
+
+    scan_intermediates<IS_LAST_TILE,
+                       typename Policy::AggregateBlockScan,
+                       typename Policy::AggregatePrefixCallback>(  //
+      temp_storage.aggregate_prefix,
+      temp_storage.aggregate_scan,
+      aggregates_tile_state,
+      tile_idx,
+      thread_aggregate_seed,
+      thread_aggregate,
+      block_aggregates);
+
+    __syncthreads();
 
     // 2.C: Scan Output Count
 
@@ -214,13 +235,16 @@ struct agent {
 
     typename Policy::Output block_output;
 
-    scan_output<IS_LAST_TILE>(temp_storage.output_prefix,  //
-                              temp_storage.output_scan,
-                              output_tile_state,
-                              tile_idx,
-                              thread_output_seed,
-                              thread_output,
-                              block_output);
+    scan_intermediates<IS_LAST_TILE,
+                       typename Policy::OutputBlockScan,
+                       typename Policy::OutputPrefixCallback>(  //
+      temp_storage.output_prefix,
+      temp_storage.output_scan,
+      output_tile_state,
+      tile_idx,
+      thread_output_seed,
+      thread_output,
+      block_output);
 
     __syncthreads();
 
@@ -245,19 +269,25 @@ struct agent {
     return {block_state, block_output};
   }
 
-  template <bool IS_LAST_TILE>
-  static inline __device__ void scan_state(  //
-    typename Policy::StatePrefixCallback::TempStorage& state_prefix,
-    typename Policy::StateBlockScan::TempStorage& state_scan,
-    typename Policy::StateTileState& state_tile_state,
+  template <bool IS_LAST_TILE,
+            typename BlockScan,
+            typename PrefixCallback,
+            typename PrefixStorage,
+            typename ScanStorage,
+            typename TileState,
+            typename Intermediate>
+  static inline __device__ void scan_intermediates(  //
+    PrefixStorage& prefix_storage,
+    ScanStorage& scan_storage,
+    TileState& tile_storage,
     uint32_t tile_idx,
-    typename Policy::State const& thread_state_seed,
-    typename Policy::State& thread_state,
-    typename Policy::State& block_state)
+    Intermediate const& thread_state_seed,
+    Intermediate& thread_state,
+    Intermediate& block_state)
   {
     if (tile_idx == 0) {
-      Policy::StateBlockScan(state_scan)  //
-        .ExclusiveScan(                   //
+      BlockScan(scan_storage)  //
+        .ExclusiveScan(        //
           thread_state,
           thread_state,
           thread_state_seed,
@@ -265,64 +295,24 @@ struct agent {
           block_state);
 
       if (threadIdx.x == 0 and not IS_LAST_TILE) {  //
-        state_tile_state.SetInclusive(0, block_state);
+        tile_storage.SetInclusive(0, block_state);
       }
 
     } else {
-      auto prefix_op = Policy::StatePrefixCallback(  //
-        state_tile_state,
-        state_prefix,
+      auto prefix_op = PrefixCallback(  //
+        tile_storage,
+        prefix_storage,
         cub::Sum(),
         tile_idx);
 
-      Policy::StateBlockScan(state_scan)  //
-        .ExclusiveScan(                   //
+      BlockScan(scan_storage)  //
+        .ExclusiveScan(        //
           thread_state,
           thread_state,
           cub::Sum(),
           prefix_op);
 
       block_state = prefix_op.GetInclusivePrefix();
-    }
-  }
-
-  template <bool IS_LAST_TILE>
-  static inline __device__ void scan_output(  //
-    typename Policy::OutputPrefixCallback::TempStorage& output_prefix,
-    typename Policy::OutputBlockScan::TempStorage& output_scan,
-    typename Policy::OutputTileState& output_tile_state,
-    uint32_t tile_idx,
-    typename Policy::Output const& thread_output_seed,
-    typename Policy::Output& thread_output,
-    typename Policy::Output& block_output)
-  {
-    if (tile_idx == 0) {
-      Policy::OutputBlockScan(output_scan)  //
-        .ExclusiveScan(                     //
-          thread_output,
-          thread_output,
-          thread_output_seed,
-          cub::Sum(),
-          block_output);
-
-      if (threadIdx.x == 0 and not IS_LAST_TILE) {
-        output_tile_state.SetInclusive(0, block_output);
-      }
-    } else {
-      auto prefix_op = Policy::OutputPrefixCallback(  //
-        output_tile_state,
-        output_prefix,
-        cub::Sum(),
-        tile_idx);
-
-      Policy::OutputBlockScan(output_scan)  //
-        .ExclusiveScan(                     //
-          thread_output,
-          thread_output,
-          cub::Sum(),
-          prefix_op);
-
-      block_output = prefix_op.GetInclusivePrefix();
     }
   }
 };
@@ -332,10 +322,12 @@ struct agent {
 template <typename Policy>
 __global__ void initialization_pass_kernel(  //
   typename Policy::StateTileState state_tile_state,
+  typename Policy::AggregateTileState aggregates_tile_state,
   typename Policy::OutputTileState output_tile_state,
   uint32_t num_tiles)
 {
   state_tile_state.InitializeStatus(num_tiles);
+  aggregates_tile_state.InitializeStatus(num_tiles);
   output_tile_state.InitializeStatus(num_tiles);
 }
 
@@ -350,6 +342,7 @@ __global__ void execution_pass_kernel(  //
   typename Policy::ScanAggregateOp scan_aggregate_op,
   typename Policy::OutputOp output_op,
   typename Policy::StateTileState state_tile_state,
+  typename Policy::AggregateTileState aggregates_tile_state,
   typename Policy::OutputTileState output_tile_state,
   bool is_first_pass,
   uint32_t num_tiles,
@@ -365,6 +358,7 @@ __global__ void execution_pass_kernel(  //
     scan_aggregate_op,
     output_op,
     state_tile_state,
+    aggregates_tile_state,
     output_tile_state,
     is_first_pass,
   };
@@ -477,11 +471,12 @@ void scan_state_machine(  //
 
   // calculate temp storage requirements
 
-  void* allocations[2]         = {};
-  uint64_t allocation_sizes[2] = {};
+  void* allocations[3]         = {};
+  uint64_t allocation_sizes[3] = {};
 
   CUDA_TRY(Policy::StateTileState::AllocationSize(num_tiles, allocation_sizes[0]));
-  CUDA_TRY(Policy::OutputTileState::AllocationSize(num_tiles, allocation_sizes[1]));
+  CUDA_TRY(Policy::AggregateTileState::AllocationSize(num_tiles, allocation_sizes[1]));
+  CUDA_TRY(Policy::OutputTileState::AllocationSize(num_tiles, allocation_sizes[2]));
 
   uint64_t temp_storage_bytes;
 
@@ -502,10 +497,12 @@ void scan_state_machine(  //
   // initialize
 
   typename Policy::StateTileState state_tile_state;
+  typename Policy::AggregateTileState aggregates_tile_state;
   typename Policy::OutputTileState output_tile_state;
 
   CUDA_TRY(state_tile_state.Init(num_tiles, allocations[0], allocation_sizes[0]));
-  CUDA_TRY(output_tile_state.Init(num_tiles, allocations[1], allocation_sizes[1]));
+  CUDA_TRY(aggregates_tile_state.Init(num_tiles, allocations[1], allocation_sizes[1]));
+  CUDA_TRY(output_tile_state.Init(num_tiles, allocations[2], allocation_sizes[2]));
 
   // // ideal we could avoid the upsweep by relying on prior results
   // if (is_first_pass) {
@@ -514,6 +511,7 @@ void scan_state_machine(  //
   auto init_kernel = initialization_pass_kernel<Policy>;
   init_kernel<<<num_init_blocks, Policy::THREADS_PER_INIT_BLOCK, 0, stream>>>(  //
     state_tile_state,
+    aggregates_tile_state,
     output_tile_state,
     num_tiles);
 
@@ -537,6 +535,7 @@ void scan_state_machine(  //
       scan_aggregate_op,
       output_op,
       state_tile_state,
+      aggregates_tile_state,
       output_tile_state,
       is_first_pass,
       num_tiles,
