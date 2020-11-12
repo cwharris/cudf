@@ -24,33 +24,33 @@ inline constexpr auto ceil_div(Dividend dividend, Divisor divisor)
 }
 
 template <typename State, typename Instruction, int N>
-struct dfa_superposition {
+struct dfa_superstate {
   using Offset                         = std::underlying_type_t<State>;
   State states[static_cast<Offset>(N)] = {};
 
-  inline constexpr dfa_superposition()
+  inline constexpr dfa_superstate()
   {
     for (auto i = 0; i < N; i++) { states[i] = static_cast<State>(i); }
   }
 
-  inline constexpr dfa_superposition(State states[N]) : states(states) {}
+  inline constexpr dfa_superstate(State states[N]) : states(states) {}
 
-  inline constexpr dfa_superposition(State state)
+  inline constexpr dfa_superstate(State state)
   {
     for (auto i = 0; i < N; i++) { states[i] = state; }
   }
 
-  inline constexpr dfa_superposition operator+(Instruction rhs) const
+  inline constexpr dfa_superstate operator+(Instruction rhs) const
   {
-    dfa_superposition result;
+    dfa_superstate result;
     for (auto i = 0; i < N; i++) { result.states[i] = states[i] + rhs; }
     return result;
   }
 
   // should we pass arg by const& ?
-  inline constexpr dfa_superposition operator+(dfa_superposition rhs) const
+  inline constexpr dfa_superstate operator+(dfa_superstate rhs) const
   {
-    dfa_superposition result;
+    dfa_superstate result;
     for (auto i = 0; i < N; i++) { result.states[i] = rhs.states[static_cast<Offset>(states[i])]; }
     return result;
   }
@@ -60,13 +60,13 @@ struct dfa_superposition {
 };
 
 template <typename State, typename Instruction, int N>
-inline constexpr bool operator==(State state, dfa_superposition<State, Instruction, N> superstate)
+inline constexpr bool operator==(State state, dfa_superstate<State, Instruction, N> superstate)
 {
   return superstate == state;
 }
 
 template <typename State, typename Instruction, int N>
-inline constexpr bool operator!=(State state, dfa_superposition<State, Instruction, N> superstate)
+inline constexpr bool operator!=(State state, dfa_superstate<State, Instruction, N> superstate)
 {
   return superstate != state;
 }
