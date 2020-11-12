@@ -29,10 +29,10 @@ struct csv_token_options {
 };
 
 struct csv_range_options {
-  uint32_t bytes_begin = 0;
-  uint32_t bytes_end   = std::numeric_limits<uint32_t>::max();
-  uint32_t rows_begin  = 0;
-  uint32_t rows_end    = std::numeric_limits<uint32_t>::max();
+  uint64_t bytes_begin = 0;
+  uint64_t bytes_end   = std::numeric_limits<uint64_t>::max();
+  uint64_t rows_begin  = 0;
+  uint64_t rows_end    = std::numeric_limits<uint64_t>::max();
 };
 
 inline constexpr csv_token get_token(csv_token_options const& options, char prev, char current)
@@ -54,7 +54,7 @@ inline constexpr csv_token get_token(csv_token_options const& options, char prev
 // ===== parallel state machine for CSV parsing =====
 
 struct csv_outputs {
-  dfa_output<uint32_t> record_offsets;
+  dfa_output<uint64_t> record_offsets;
 
   inline constexpr csv_outputs operator+(csv_outputs const& other) const
   {
@@ -66,7 +66,7 @@ using csv_superstate = dfa_superstate<csv_state, csv_token, 7>;
 
 struct csv_machine_state {
   csv_superstate superstate;
-  uint32_t byte_count;
+  uint64_t byte_count;
   csv_state prev_state;
   inline constexpr csv_machine_state operator+(csv_machine_state const rhs) const
   {
@@ -92,8 +92,8 @@ struct csv_fsm_state_scan_op {
 struct csv_aggregates {
   csv_state state;
   bool is_new_record;
-  uint32_t record_begin;
-  uint32_t record_count;
+  uint64_t record_begin;
+  uint64_t record_count;
   inline constexpr csv_aggregates operator+(csv_machine_state machine_state)
   {
     auto const state         = static_cast<csv_state>(machine_state.superstate);
@@ -145,7 +145,7 @@ struct csv_fsm_output_op {
   // TODO: add finalizer
 };
 
-rmm::device_uvector<uint32_t> csv_gather_row_offsets(
+rmm::device_uvector<uint64_t> csv_gather_row_offsets(
   device_span<char> input,
   csv_token_options token_options     = {},
   csv_range_options range_options     = {},
@@ -177,7 +177,7 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
   // auto h_output_state = d_outputs.value(stream);
 
   auto d_record_offsets =
-    rmm::device_uvector<uint32_t>(h_output.record_offsets.output_count, stream, mr);
+    rmm::device_uvector<uint64_t>(h_output.record_offsets.output_count, stream, mr);
 
   h_output                              = {};
   h_output.record_offsets.output_buffer = d_record_offsets.data();

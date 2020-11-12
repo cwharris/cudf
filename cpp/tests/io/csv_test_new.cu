@@ -43,26 +43,26 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStates)
 
   ASSERT_EQ(static_cast<uint32_t>(9), d_row_offsets.size());
 
-  auto h_row_offsets = std::vector<uint32_t>(d_row_offsets.size());
+  auto h_row_offsets = std::vector<uint64_t>(d_row_offsets.size());
 
   cudaStreamSynchronize(0);
 
   cudaMemcpy(h_row_offsets.data(),  //
              d_row_offsets.data(),
-             d_row_offsets.size() * sizeof(uint32_t),
+             d_row_offsets.size() * sizeof(uint64_t),
              cudaMemcpyDeviceToHost);
 
-  EXPECT_EQ(static_cast<uint32_t>(0), h_row_offsets[0]);
-  EXPECT_EQ(static_cast<uint32_t>(13), h_row_offsets[1]);
-  EXPECT_EQ(static_cast<uint32_t>(29), h_row_offsets[2]);
+  EXPECT_EQ(static_cast<uint64_t>(0), h_row_offsets[0]);
+  EXPECT_EQ(static_cast<uint64_t>(13), h_row_offsets[1]);
+  EXPECT_EQ(static_cast<uint64_t>(29), h_row_offsets[2]);
 
-  EXPECT_EQ(static_cast<uint32_t>(33), h_row_offsets[3]);
-  EXPECT_EQ(static_cast<uint32_t>(46), h_row_offsets[4]);
-  EXPECT_EQ(static_cast<uint32_t>(62), h_row_offsets[5]);
+  EXPECT_EQ(static_cast<uint64_t>(33), h_row_offsets[3]);
+  EXPECT_EQ(static_cast<uint64_t>(46), h_row_offsets[4]);
+  EXPECT_EQ(static_cast<uint64_t>(62), h_row_offsets[5]);
 
-  EXPECT_EQ(static_cast<uint32_t>(66), h_row_offsets[6]);
-  EXPECT_EQ(static_cast<uint32_t>(79), h_row_offsets[7]);
-  EXPECT_EQ(static_cast<uint32_t>(95), h_row_offsets[8]);
+  EXPECT_EQ(static_cast<uint64_t>(66), h_row_offsets[6]);
+  EXPECT_EQ(static_cast<uint64_t>(79), h_row_offsets[7]);
+  EXPECT_EQ(static_cast<uint64_t>(95), h_row_offsets[8]);
 }
 
 TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithRowRange)
@@ -85,25 +85,25 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithRowRange)
     {},
     {
       0,
-      std::numeric_limits<uint32_t>::max(),
+      std::numeric_limits<uint64_t>::max(),
       4,
       7,
     });
 
   ASSERT_EQ(static_cast<uint32_t>(3), d_row_offsets.size());
 
-  auto h_row_offsets = std::vector<uint32_t>(d_row_offsets.size());
+  auto h_row_offsets = std::vector<uint64_t>(d_row_offsets.size());
 
   cudaStreamSynchronize(0);
 
   cudaMemcpy(h_row_offsets.data(),  //
              d_row_offsets.data(),
-             d_row_offsets.size() * sizeof(uint32_t),
+             d_row_offsets.size() * sizeof(uint64_t),
              cudaMemcpyDeviceToHost);
 
-  EXPECT_EQ(static_cast<uint32_t>(33), h_row_offsets[0]);
-  EXPECT_EQ(static_cast<uint32_t>(46), h_row_offsets[1]);
-  EXPECT_EQ(static_cast<uint32_t>(62), h_row_offsets[2]);
+  EXPECT_EQ(static_cast<uint64_t>(33), h_row_offsets[0]);
+  EXPECT_EQ(static_cast<uint64_t>(46), h_row_offsets[1]);
+  EXPECT_EQ(static_cast<uint64_t>(62), h_row_offsets[2]);
 }
 
 TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithByteRange)
@@ -128,18 +128,18 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithByteRange)
 
   ASSERT_EQ(static_cast<uint32_t>(3), d_row_offsets.size());
 
-  auto h_row_offsets = std::vector<uint32_t>(d_row_offsets.size());
+  auto h_row_offsets = std::vector<uint64_t>(d_row_offsets.size());
 
   cudaStreamSynchronize(0);
 
   cudaMemcpy(h_row_offsets.data(),  //
              d_row_offsets.data(),
-             d_row_offsets.size() * sizeof(uint32_t),
+             d_row_offsets.size() * sizeof(uint64_t),
              cudaMemcpyDeviceToHost);
 
-  EXPECT_EQ(static_cast<uint32_t>(33), h_row_offsets[0]);
-  EXPECT_EQ(static_cast<uint32_t>(46), h_row_offsets[1]);
-  EXPECT_EQ(static_cast<uint32_t>(62), h_row_offsets[2]);
+  EXPECT_EQ(static_cast<uint64_t>(33), h_row_offsets[0]);
+  EXPECT_EQ(static_cast<uint64_t>(46), h_row_offsets[1]);
+  EXPECT_EQ(static_cast<uint64_t>(62), h_row_offsets[2]);
 }
 
 TEST_F(CsvStateMachineTest, CanTransitionStateSegments)
@@ -157,7 +157,7 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStates2)
 
   // auto result = a + b;
 
-  // EXPECT_EQ(static_cast<uint32_t>(99), result.byte_count);
+  // EXPECT_EQ(static_cast<uint64_t>(99), result.byte_count);
 }
 
 TEST_F(CsvStateMachineTest, CanTransitionCsvStates3)
