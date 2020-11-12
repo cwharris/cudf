@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <exception>
 #include <limits>
 
 #include <cudf/algorithm/scan_state_machine.cuh>
@@ -25,6 +26,13 @@ struct csv_token_options {
   char delimiter  = ',';
   char quote      = '"';  // 0x100 is current default
   char comment    = '#';  // 0x100 is current default
+};
+
+struct csv_range_options {
+  uint32_t bytes_begin = 0;
+  uint32_t bytes_end   = std::numeric_limits<uint32_t>::max();
+  uint32_t rows_begin  = 0;
+  uint32_t rows_end    = std::numeric_limits<uint32_t>::max();
 };
 
 inline constexpr csv_token get_token(csv_token_options const& options, char prev, char current)
@@ -54,96 +62,82 @@ struct csv_outputs {
   }
 };
 
-using csv_superstate = dfa_superposition<csv_state, csv_token, 7>;
+using csv_superstate = dfa_superstate<csv_state, csv_token, 7>;
 
 struct csv_machine_state {
-  csv_superstate state;
-  uint32_t byte_count  = 0;
-  uint32_t row_count   = 0;
-  bool is_record_start = false;
-
-  inline constexpr csv_machine_state operator+(csv_machine_state const& rhs) const
+  csv_superstate superstate;
+  uint32_t byte_count;
+  csv_state prev_state;
+  inline constexpr csv_machine_state operator+(csv_machine_state const rhs) const
   {
     return {
-      state + rhs.state,
+      superstate + rhs.superstate,
       byte_count + rhs.byte_count,
-      row_count + rhs.row_count,
-      rhs.is_record_start,
+      rhs.prev_state,
     };
   }
 };
 
 struct csv_fsm_state_scan_op {
-  csv_token_options tokens_options;
-  inline constexpr csv_machine_state operator()(csv_machine_state prev, char current_char)
+  csv_token_options const tokens_options;
+  inline constexpr csv_machine_state operator()(csv_machine_state machine_state,
+                                                char current_char) const
   {
-    auto token = get_token(tokens_options, 0, current_char);
-
-    auto is_new_record = prev.state == csv_state::record_end and token == csv_token::other;
-
-    return {
-      prev.state + token,
-      prev.byte_count + 1,
-      prev.row_count + is_new_record,
-      is_new_record,
-    };
+    return {machine_state.superstate + get_token(tokens_options, 0, current_char),
+            machine_state.byte_count + 1,
+            static_cast<csv_state>(machine_state.superstate)};
   }
 };
 
 struct csv_aggregates {
-  csv_machine_state machine_state;
+  csv_state state;
+  bool is_new_record;
+  uint32_t record_begin;
+  uint32_t record_count;
+  inline constexpr csv_aggregates operator+(csv_machine_state machine_state)
+  {
+    auto const state         = static_cast<csv_state>(machine_state.superstate);
+    auto const is_field      = state == csv_state::field or state == csv_state::field_quoted;
+    auto const is_new_record = machine_state.prev_state == csv_state::record_end and is_field;
+    return {
+      state,
+      is_new_record,
+      is_new_record ? machine_state.byte_count - 1 : record_begin,
+      record_count + is_new_record,
+    };
+  }
   inline constexpr csv_aggregates operator+(csv_aggregates const rhs) const
   {
-    return {rhs.machine_state};
+    return {
+      rhs.state,
+      rhs.is_new_record,
+      rhs.record_begin,
+      record_count + rhs.record_count,
+    };
   };
 };
 
 struct csv_aggregates_scan_op {
-  inline constexpr csv_aggregates operator()(csv_aggregates const agg,
-                                             csv_machine_state const state) const
+  inline constexpr csv_aggregates  //
+  operator()(csv_aggregates agg, csv_machine_state machine_state) const
   {
-    return {state};
+    return agg + machine_state;
   }
-};
-
-struct csv_range_options {
-  uint32_t bytes_begin = 0;
-  uint32_t bytes_end   = std::numeric_limits<uint32_t>::max();
-  uint32_t rows_begin  = 0;
-  uint32_t rows_end    = std::numeric_limits<uint32_t>::max();
 };
 
 struct csv_fsm_output_op {
   csv_range_options range;
 
   template <bool output_enabled>
-  inline __device__ csv_outputs operator()(csv_outputs out, csv_aggregates agg)
+  inline constexpr csv_outputs operator()(csv_outputs out, csv_aggregates agg)
   {
-    // if (output_enabled) {
-    //   printf(
-    //     "bid(%2i) tid(%2i): byte(%-4i) char(%2c) state(%i - %i) range(%i, %i) count(%2i) "
-    //     "out(%2i)\n ",
-    //     blockIdx.x,
-    //     threadIdx.x,
-    //     next.byte_count,
-    //     current_char,
-    //     prev.state.states[0],
-    //     next.state.states[0],
-    //     range.bytes_begin,
-    //     range.bytes_end,
-    //     next.row_count,
-    //     out.record_offsets.output_count);
-    // }
+    if (not agg.is_new_record) { return out; }
+    if (agg.record_begin < range.bytes_begin) { return out; }
+    if (agg.record_begin >= range.bytes_end) { return out; }
+    if (agg.record_count < range.rows_begin) { return out; }
+    if (agg.record_count >= range.rows_end) { return out; }
 
-    // if (next.byte_count - 1 < range.bytes_begin) { return out; }
-    // if (next.byte_count - 1 >= range.bytes_end) { return out; }
-
-    if (not agg.machine_state.is_record_start) { return out; }
-
-    // if (next.row_count < range.rows_begin) { return out; }
-    // if (next.row_count >= range.rows_end) { return out; }
-
-    out.record_offsets.emit<output_enabled>(agg.machine_state.byte_count - 1);
+    out.record_offsets.emit<output_enabled>(agg.record_begin);
 
     return out;
   }
@@ -162,11 +156,11 @@ rmm::device_uvector<uint32_t> csv_gather_row_offsets(
   auto aggregates_scan_op = csv_aggregates_scan_op{};
   auto output_op          = csv_fsm_output_op{range_options};
 
-  auto d_state      = rmm::device_scalar<csv_machine_state>(stream, mr);
-  auto d_aggregates = rmm::device_scalar<csv_aggregates>(stream, mr);
-  auto d_outputs    = rmm::device_scalar<csv_outputs>(stream, mr);
+  auto d_state      = rmm::device_scalar<csv_machine_state>(csv_machine_state(), stream, mr);
+  auto d_aggregates = rmm::device_scalar<csv_aggregates>(csv_aggregates(), stream, mr);
+  auto d_outputs    = rmm::device_scalar<csv_outputs>(csv_outputs(), stream, mr);
 
-  rmm::device_buffer temp_memory;
+  rmm::device_buffer temp_memory = {};
 
   scan_state_machine(temp_memory,
                      input.begin(),

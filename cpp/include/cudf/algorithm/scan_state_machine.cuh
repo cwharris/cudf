@@ -55,21 +55,8 @@ struct dfa_superstate {
     return result;
   }
 
-  inline constexpr bool operator==(State state) const { return states[0] == state; }
-  inline constexpr bool operator!=(State state) const { return states[0] != state; }
+  explicit inline constexpr operator State() const { return states[0]; }
 };
-
-template <typename State, typename Instruction, int N>
-inline constexpr bool operator==(State state, dfa_superstate<State, Instruction, N> superstate)
-{
-  return superstate == state;
-}
-
-template <typename State, typename Instruction, int N>
-inline constexpr bool operator!=(State state, dfa_superstate<State, Instruction, N> superstate)
-{
-  return superstate != state;
-}
 
 template <typename T>
 struct dfa_output {
@@ -154,6 +141,7 @@ struct agent {
     uint32_t const thread_offset = threadIdx.x * Policy::ITEMS_PER_THREAD;
 
     // 1: Load Inputs
+    if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 1\n", blockIdx.x, threadIdx.x); }
 
     typename Policy::Input items[Policy::ITEMS_PER_THREAD];
 
@@ -168,8 +156,9 @@ struct agent {
     __syncthreads();
 
     // 2: Scan State
+    if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 2\n", blockIdx.x, threadIdx.x); }
 
-    auto thread_state_seed           = *d_inout_state;
+    auto const thread_state_seed     = *d_inout_state;
     auto const thread_aggregate_seed = *d_inout_aggregates;
     auto const thread_output_seed    = *d_inout_outputs;
     auto thread_state                = thread_state_seed;
@@ -199,12 +188,10 @@ struct agent {
 
     __syncthreads();
 
-    // 3: Scan Aggregate
+    auto const thread_state_prefix = thread_state;
 
-    // TODO: scan the seed state on the first tile
-    // if (tile_idx == 0) {
-    //   thread_aggregate = scan_aggregate_op(thread_aggregate, thread_state_seed);
-    // }
+    // 3: Scan Aggregate
+    if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 3\n", blockIdx.x, threadIdx.x); }
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
@@ -228,10 +215,11 @@ struct agent {
 
     __syncthreads();
 
-    // 4: Scan Output Count
+    auto const thread_aggregate_prefix = thread_aggregate;
 
-    thread_output     = *d_inout_outputs;  // reset state gathering.
-    thread_state_seed = thread_state;
+    // 4: Scan Output Count
+    if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 4\n", blockIdx.x, threadIdx.x); }
+    thread_state = thread_state_prefix;
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
@@ -240,18 +228,6 @@ struct agent {
         thread_output    = output_op.operator()<false>(thread_output, thread_aggregate);
       }
     }
-
-    // for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
-    //   if (thread_offset + i < num_items_remaining) {
-    //     auto next_state = scan_state_op(thread_state, items[i]);
-    //     thread_output   = output_op.operator()<false>(  //
-    //       thread_output,
-    //       thread_state,
-    //       next_state,
-    //       items[i]);
-    //     thread_state    = next_state;
-    //   }
-    // }
 
     typename Policy::Output block_output;
 
@@ -268,9 +244,12 @@ struct agent {
 
     __syncthreads();
 
-    thread_state = thread_state_seed;
+    auto const thread_output_prefix = thread_output;
 
-    // 3: Scan Output Mutation
+    // 5: Scan Output Mutation
+    if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 5\n", blockIdx.x, threadIdx.x); }
+    thread_state     = thread_state_prefix;
+    thread_aggregate = thread_aggregate_prefix;
 
     if (not is_first_pass) {
       for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
