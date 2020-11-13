@@ -56,9 +56,9 @@ inline constexpr csv_token get_token(csv_token_options const& options, char prev
 struct csv_outputs {
   dfa_output<uint64_t> record_offsets;
 
-  inline constexpr csv_outputs operator+(csv_outputs const& other) const
+  inline constexpr csv_outputs operator+(csv_outputs const& rhs) const
   {
-    return {record_offsets + other.record_offsets};
+    return {record_offsets + rhs.record_offsets};
   }
 };
 
@@ -66,14 +66,14 @@ using csv_superstate = dfa_superstate<csv_state, csv_token, 7>;
 
 struct csv_machine_state {
   csv_superstate superstate;
-  uint64_t byte_count;
-  csv_state prev_state;
+  csv_state state_prev;
+  uint64_t offset;
   inline constexpr csv_machine_state operator+(csv_machine_state const rhs) const
   {
     return {
       superstate + rhs.superstate,
-      byte_count + rhs.byte_count,
-      rhs.prev_state,
+      rhs.state_prev,
+      offset + rhs.offset,
     };
   }
 };
@@ -83,66 +83,79 @@ struct csv_fsm_state_scan_op {
   inline constexpr csv_machine_state operator()(csv_machine_state machine_state,
                                                 char current_char) const
   {
-    return {machine_state.superstate + get_token(tokens_options, 0, current_char),
-            machine_state.byte_count + 1,
-            static_cast<csv_state>(machine_state.superstate)};
+    return {
+      machine_state.superstate + get_token(tokens_options, 0, current_char),
+      static_cast<csv_state>(machine_state.superstate),
+      machine_state.offset + 1,
+    };
   }
 };
 
 struct csv_aggregates {
   csv_state state;
-  bool is_new_record;
+  csv_state state_prev;
+  uint64_t offset;
   uint64_t record_begin;
   uint64_t record_count;
-  inline constexpr csv_aggregates operator+(csv_machine_state machine_state)
-  {
-    auto const state         = static_cast<csv_state>(machine_state.superstate);
-    auto const is_field      = state == csv_state::field or state == csv_state::field_quoted;
-    auto const is_new_record = machine_state.prev_state == csv_state::record_end and is_field;
-    return {
-      state,
-      is_new_record,
-      is_new_record ? machine_state.byte_count - 1 : record_begin,
-      record_count + is_new_record,
-    };
-  }
   inline constexpr csv_aggregates operator+(csv_aggregates const rhs) const
   {
+    auto const is_new_record = state == csv_state::record_end || offset != rhs.record_begin;
     return {
       rhs.state,
-      rhs.is_new_record,
-      rhs.record_begin,
+      rhs.state_prev,
+      rhs.offset,
+      is_new_record ? rhs.record_begin : record_begin,
       record_count + rhs.record_count,
     };
-  };
+  }
 };
 
 struct csv_aggregates_scan_op {
-  inline constexpr csv_aggregates  //
-  operator()(csv_aggregates agg, csv_machine_state machine_state) const
+  inline constexpr csv_aggregates operator()(csv_aggregates prev,
+                                             csv_machine_state machine_state) const
   {
-    return agg + machine_state;
+    auto const state         = static_cast<csv_state>(machine_state.superstate);
+    auto const is_new_record = machine_state.state_prev == csv_state::record_end;
+
+    return {
+      state,
+      machine_state.state_prev,
+      machine_state.offset,
+      is_new_record ? machine_state.offset - 1 : prev.record_begin,
+      is_new_record + prev.record_count,
+    };
   }
 };
 
 struct csv_fsm_output_op {
   csv_range_options range;
-
   template <bool output_enabled>
   inline constexpr csv_outputs operator()(csv_outputs out, csv_aggregates agg)
   {
-    if (not agg.is_new_record) { return out; }
-    if (agg.record_begin < range.bytes_begin) { return out; }
-    if (agg.record_begin >= range.bytes_end) { return out; }
-    if (agg.record_count < range.rows_begin) { return out; }
-    if (agg.record_count >= range.rows_end) { return out; }
+    if (agg.state != csv_state::record_end) {
+      // this is not the end of a record
+      return out;
+    }
+
+    if (agg.state_prev == csv_state::comment) {
+      // ignore comments
+      return out;
+    }
+
+    if (agg.record_begin < range.bytes_begin ||  //
+        agg.record_begin >= range.bytes_end) {
+      return out;
+    }
+
+    if (agg.record_count < range.rows_begin ||  //
+        agg.record_count >= range.rows_end) {
+      return out;
+    }
 
     out.record_offsets.emit<output_enabled>(agg.record_begin);
 
     return out;
   }
-
-  // TODO: add finalizer
 };
 
 rmm::device_uvector<uint64_t> csv_gather_row_offsets(

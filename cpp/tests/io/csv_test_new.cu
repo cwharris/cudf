@@ -41,7 +41,8 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStates)
 
   auto d_row_offsets = cudf::io::detail::csv_gather_row_offsets(d_input);
 
-  ASSERT_EQ(static_cast<uint32_t>(9), d_row_offsets.size());
+  ASSERT_GE(d_row_offsets.size(), static_cast<uint32_t>(9));
+  EXPECT_EQ(d_row_offsets.size(), static_cast<uint32_t>(9));
 
   auto h_row_offsets = std::vector<uint64_t>(d_row_offsets.size());
 
@@ -90,7 +91,8 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithRowRange)
       7,
     });
 
-  ASSERT_EQ(static_cast<uint32_t>(3), d_row_offsets.size());
+  ASSERT_GE(d_row_offsets.size(), static_cast<uint32_t>(3));
+  EXPECT_EQ(d_row_offsets.size(), static_cast<uint32_t>(3));
 
   auto h_row_offsets = std::vector<uint64_t>(d_row_offsets.size());
 
@@ -126,7 +128,8 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithByteRange)
     {},
     {33, 63});
 
-  ASSERT_EQ(static_cast<uint32_t>(3), d_row_offsets.size());
+  ASSERT_GE(d_row_offsets.size(), static_cast<uint32_t>(3));
+  EXPECT_EQ(d_row_offsets.size(), static_cast<uint32_t>(3));
 
   auto h_row_offsets = std::vector<uint64_t>(d_row_offsets.size());
 
@@ -170,6 +173,30 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStates3)
   auto result = a + b;
 
   EXPECT_EQ(csv_state::field, static_cast<csv_state>(result));
+}
+
+TEST_F(CsvStateMachineTest, CanTransitionCsvStates5)
+{
+  // using namespace cudf::io::detail;
+
+  // auto scan_op = csv_aggregates_scan_op{};
+  // auto agg     = csv_aggregates{};
+
+  // agg = scan_op(agg, {csv_superstate(csv_state::field), 1});
+
+  // EXPECT_EQ(agg.previous_state, csv_state::record_end);
+  // EXPECT_EQ(agg.current_state, csv_state::field);
+  // EXPECT_EQ(agg.current_position, static_cast<uint64_t>(1));
+  // EXPECT_EQ(agg.record_begin, static_cast<uint64_t>(1));
+  // EXPECT_EQ(agg.record_count, static_cast<uint64_t>(1));
+
+  // agg = scan_op(agg, {csv_superstate(csv_state::field), 2});
+
+  // EXPECT_EQ(agg.previous_state, csv_state::field);
+  // EXPECT_EQ(agg.current_state, csv_state::field);
+  // EXPECT_EQ(agg.current_position, static_cast<uint64_t>(2));
+  // EXPECT_EQ(agg.record_begin, static_cast<uint64_t>(1));
+  // EXPECT_EQ(agg.record_count, static_cast<uint64_t>(1));
 }
 
 CUDF_TEST_PROGRAM_MAIN()
