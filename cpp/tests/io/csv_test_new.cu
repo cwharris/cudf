@@ -2,25 +2,6 @@
 #include <cudf_test/base_fixture.hpp>
 #include <limits>
 
-/*
-// uint64_t *row_ctx,
-// device_span<uint64_t> const offsets_out,
-// size_t chunk_size,
-// size_t parse_pos,
-// const parse_options_view &options,
-// cudaStream_t stream
-// options.terminator,
-// options.delimiter,
-// options.quotechar ? options.quotechar : 0x100,
-// options.comment   ? options.comment   : 0x100);
-device_span<char const> const data,
-size_t start_offset,
-size_t data_size,
-size_t byte_range_start,
-size_t byte_range_end,
-size_t skip_rows,
-*/
-
 class CsvStateMachineTest : public cudf::test::BaseFixture {
 };
 
@@ -41,8 +22,7 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStates)
 
   auto d_row_offsets = cudf::io::detail::csv_gather_row_offsets(d_input);
 
-  ASSERT_GE(d_row_offsets.size(), static_cast<uint32_t>(9));
-  EXPECT_EQ(d_row_offsets.size(), static_cast<uint32_t>(9));
+  ASSERT_EQ(d_row_offsets.size(), static_cast<uint32_t>(9));
 
   auto h_row_offsets = std::vector<uint64_t>(d_row_offsets.size());
 
@@ -91,8 +71,7 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithRowRange)
       7,
     });
 
-  ASSERT_GE(d_row_offsets.size(), static_cast<uint32_t>(3));
-  EXPECT_EQ(d_row_offsets.size(), static_cast<uint32_t>(3));
+  ASSERT_EQ(d_row_offsets.size(), static_cast<uint32_t>(3));
 
   auto h_row_offsets = std::vector<uint64_t>(d_row_offsets.size());
 
@@ -128,8 +107,7 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithByteRange)
     {},
     {33, 63});
 
-  ASSERT_GE(d_row_offsets.size(), static_cast<uint32_t>(3));
-  EXPECT_EQ(d_row_offsets.size(), static_cast<uint32_t>(3));
+  ASSERT_EQ(d_row_offsets.size(), static_cast<uint32_t>(3));
 
   auto h_row_offsets = std::vector<uint64_t>(d_row_offsets.size());
 
@@ -155,6 +133,9 @@ TEST_F(CsvStateMachineTest, CanTransitionStateSegments)
 TEST_F(CsvStateMachineTest, CanTransitionCsvStates2)
 {
   using namespace cudf::io::detail;
+
+  // auto a = csv_machine_state{csv_state::record_end, csv_state::record_end, 0};
+
   // auto a = csv_machine_state{csv_state::record_end, 67};
   // auto b = csv_machine_state{csv_state::record_end, 32};
 

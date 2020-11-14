@@ -116,13 +116,14 @@ struct csv_aggregates_scan_op {
   {
     auto const state         = static_cast<csv_state>(machine_state.superstate);
     auto const is_new_record = machine_state.state_prev == csv_state::record_end;
+    auto const is_record_end = state == csv_state::record_end;
 
     return {
       state,
       machine_state.state_prev,
       machine_state.offset,
       is_new_record ? machine_state.offset - 1 : prev.record_begin,
-      is_new_record + prev.record_count,
+      is_record_end + prev.record_count,
     };
   }
 };
@@ -130,15 +131,36 @@ struct csv_aggregates_scan_op {
 struct csv_fsm_output_op {
   csv_range_options range;
   template <bool output_enabled>
-  inline constexpr csv_outputs operator()(csv_outputs out, csv_aggregates agg)
+  inline __device__ csv_outputs operator()(csv_outputs out, csv_aggregates agg)
   {
+    if (output_enabled) {
+      // csv_state state;
+      // csv_state state_prev;
+      // uint64_t offset;
+      // uint64_t record_begin;
+      // uint64_t record_count;
+      printf("bid(%2i) tid(%2i): o(%3lu) rec_begin(%3lu) rec_count(%2lu) state(%2i -> %2i)\n",
+        blockIdx.x,
+        threadIdx.x,
+        agg.offset,
+        agg.record_begin,
+        agg.record_count,
+        agg.state_prev,
+        agg.state);
+    }
+
     if (agg.state != csv_state::record_end) {
-      // this is not the end of a record
+      // this is not the end of a row
       return out;
     }
 
     if (agg.state_prev == csv_state::comment) {
-      // ignore comments
+      // ignore comment rows
+      return out;
+    }
+
+    if (agg.state_prev == csv_state::record_end) {
+      // ignore empty rows
       return out;
     }
 
