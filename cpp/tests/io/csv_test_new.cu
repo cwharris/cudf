@@ -5,6 +5,61 @@
 class CsvStateMachineTest : public cudf::test::BaseFixture {
 };
 
+rmm::device_vector<char> to_device_vector(std::string input)
+{
+  return rmm::device_vector<char>(input.c_str(), input.c_str() + input.size());
+}
+
+template <typename T>
+std::vector<uint64_t> to_host_vector(rmm::device_uvector<T> const& d_source, cudaStream_t stream)
+{
+  auto h_result = std::vector<T>(d_source.size());
+
+  cudaMemcpyAsync(h_result.data(),  //
+                  d_source.data(),
+                  d_source.size() * sizeof(T),
+                  cudaMemcpyDeviceToHost,
+                  stream);
+
+  return h_result;
+}
+
+TEST_F(CsvStateMachineTest, CanDetectTerminatedRecords)
+{
+  cudaStream_t stream  = 0;
+  auto d_input = to_device_vector("single\ncolumn\ncsv\n");
+
+  auto d_row_offsets = cudf::io::detail::csv_gather_row_offsets(d_input, {},{}, stream);
+  auto h_row_offsets = to_host_vector(d_row_offsets, stream);
+
+  cudaStreamSynchronize(stream);
+
+  ASSERT_EQ(h_row_offsets.size(), static_cast<uint32_t>(3));
+
+  EXPECT_EQ(static_cast<uint64_t>(0), h_row_offsets[0]);
+  EXPECT_EQ(static_cast<uint64_t>(8), h_row_offsets[1]);
+  EXPECT_EQ(static_cast<uint64_t>(15), h_row_offsets[2]);
+}
+
+// TEST_F(CsvStateMachineTest, CanDetectTerminatedFields)
+// {
+//   cudaStream_t stream  = 0;
+//   auto d_input = to_device_vector("single,row,csv");
+
+//   // std::string of header row values
+//   // cudf::table of data
+//   auto d_row_offsets = cudf::io::detail::csv_read(d_input, {},{}, stream);
+//   auto h_row_offsets = to_host_vector(d_row_offsets, stream);
+
+//   cudaStreamSynchronize(stream);
+
+//   ASSERT_EQ(h_row_offsets.size(), static_cast<uint32_t>(3));
+
+//   EXPECT_EQ(static_cast<uint64_t>(0), h_row_offsets[0]);
+//   EXPECT_EQ(static_cast<uint64_t>(7), h_row_offsets[1]);
+//   EXPECT_EQ(static_cast<uint64_t>(11), h_row_offsets[2]);
+// }
+
 TEST_F(CsvStateMachineTest, CanTransitionCsvStates)
 {
   auto input = std::string(
