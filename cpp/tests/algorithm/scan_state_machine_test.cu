@@ -4,25 +4,47 @@
 #include <cudf_test/cudf_gtest.hpp>
 
 #include <cudf/algorithm/scan_state_machine.cuh>
+#include <cudf/dfa/output/vector_output.hpp>
 #include <cudf/utilities/span.hpp>
-#include "rmm/device_buffer.hpp"
-#include "rmm/device_scalar.hpp"
-#include "rmm/device_uvector.hpp"
+
+#include <rmm/device_buffer.hpp>
+#include <rmm/device_scalar.hpp>
+#include <rmm/device_uvector.hpp>
 
 #include <rmm/thrust_rmm_allocator.h>
 
 #include <thrust/iterator/constant_iterator.h>
 
+using cudf::dfa::output::detail::vector_output;
+
 class ScanStateMachineTest : public cudf::test::BaseFixture {
 };
 
+struct simple_output_data {
+  rmm::device_uvector<uint32_t> a;
+  rmm::device_uvector<double> b;
+};
+
 struct simple_output {
-  dfa_output<uint32_t> a;
-  dfa_output<double> b;
+  vector_output<uint32_t> a;
+  vector_output<double> b;
 
   inline constexpr simple_output operator+(simple_output other) const
   {
-    return {a + other.a, b + other.b};
+    return {
+      a + other.a,
+      b + other.b,
+    };
+  }
+
+  simple_output_data allocate(
+    cudaStream_t stream,
+    rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
+  {
+    return {
+      a.allocate(stream, mr),
+      b.allocate(stream, mr),
+    };
   }
 };
 
@@ -65,7 +87,8 @@ struct simple_output_op {
 
 TEST_F(ScanStateMachineTest, CanScanSimpleState)
 {
-  auto input = thrust::make_constant_iterator<uint32_t>(1);
+  cudaStream_t stream = 0;
+  auto input          = thrust::make_constant_iterator<uint32_t>(1);
 
   auto scan_state_op      = simple_scan_state_op{};
   auto scan_aggregates_op = simple_scan_aggregates_op{};
@@ -94,27 +117,25 @@ TEST_F(ScanStateMachineTest, CanScanSimpleState)
                      scan_aggregates_op,
                      output_op);
 
-  auto h_output       = d_inout_outputs.value();
-  auto h_output_state = d_inout_state.value();
+  auto h_output       = d_inout_outputs.value(stream);
+  auto h_output_state = d_inout_state.value(stream);
 
   EXPECT_EQ(input_size, h_output_state.sum);
   EXPECT_EQ(input_size, h_output_state.sum);
 
-  ASSERT_EQ(expected_output_size_a, h_output.a.output_count);
-  ASSERT_EQ(expected_output_size_b, h_output.b.output_count);
+  ASSERT_EQ(expected_output_size_a, h_output.a.count);
+  ASSERT_EQ(expected_output_size_b, h_output.b.count);
 
   // phase 2: allocate outputs
 
-  auto output_a = rmm::device_uvector<uint32_t>(h_output.a.output_count, 0);
-  auto output_b = rmm::device_uvector<double>(h_output.b.output_count, 0);
+  auto output_a = rmm::device_uvector<uint32_t>(h_output.a.count, 0);
+  auto output_b = rmm::device_uvector<double>(h_output.b.count, 0);
 
-  h_output                 = {};
-  h_output.a.output_buffer = output_a.data();
-  h_output.b.output_buffer = output_b.data();
+  h_output.allocate(stream);
 
-  d_inout_state.set_value({});
-  d_inout_aggregates.set_value({});
-  d_inout_outputs.set_value(h_output);
+  d_inout_state.set_value({}, stream);
+  d_inout_aggregates.set_value({}, stream);
+  d_inout_outputs.set_value(h_output, stream);
 
   scan_state_machine(temp_storage,  //
                      d_input.begin(),
@@ -132,24 +153,22 @@ TEST_F(ScanStateMachineTest, CanScanSimpleState)
   EXPECT_EQ(input_size, h_output_state.sum);
   EXPECT_EQ(input_size, h_output_state.sum);
 
-  ASSERT_EQ(expected_output_size_a, h_output.a.output_count);
-  ASSERT_EQ(expected_output_size_b, h_output.b.output_count);
+  ASSERT_EQ(expected_output_size_a, h_output.a.count);
+  ASSERT_EQ(expected_output_size_b, h_output.b.count);
 
-  ASSERT_EQ(output_a.data(), h_output.a.output_buffer);
-  ASSERT_EQ(output_b.data(), h_output.b.output_buffer);
+  ASSERT_EQ(output_a.data(), h_output.a.data);
+  ASSERT_EQ(output_b.data(), h_output.b.data);
 
-  auto h_output_a = std::vector<uint32_t>(h_output.a.output_count);
-  auto h_output_b = std::vector<double>(h_output.b.output_count);
+  auto h_output_a = std::vector<uint32_t>(h_output.a.count);
+  auto h_output_b = std::vector<double>(h_output.b.count);
 
   cudaMemcpy(h_output_a.data(),
-             h_output.a.output_buffer,
-             h_output.a.output_count * sizeof(uint32_t),
+             h_output.a.data,
+             h_output.a.count * sizeof(uint32_t),
              cudaMemcpyDeviceToHost);
 
-  cudaMemcpy(h_output_b.data(),
-             h_output.b.output_buffer,
-             h_output.b.output_count * sizeof(double),
-             cudaMemcpyDeviceToHost);
+  cudaMemcpy(
+    h_output_b.data(), h_output.b.data, h_output.b.count * sizeof(double), cudaMemcpyDeviceToHost);
 
   for (uint32_t i = 0; i < h_output_a.size(); i++) {
     EXPECT_EQ(static_cast<uint32_t>(i * 3) + 3, h_output_a[i]);

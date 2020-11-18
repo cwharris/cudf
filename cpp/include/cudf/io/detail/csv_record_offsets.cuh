@@ -5,6 +5,8 @@
 #include <limits>
 
 #include <cudf/algorithm/scan_state_machine.cuh>
+#include <cudf/dfa/output/vector_output.hpp>
+#include <cudf/dfa/superstate.hpp>
 #include <cudf/io/detail/csv_state.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/span.hpp>
@@ -13,6 +15,7 @@
 #include <rmm/mr/device/per_device_resource.hpp>
 
 using cudf::detail::device_span;
+using cudf::dfa::output::detail::vector_output;
 
 namespace cudf {
 namespace io {
@@ -54,15 +57,22 @@ inline constexpr csv_token get_token(csv_token_options const& options, char prev
 // ===== parallel state machine for CSV parsing =====
 
 struct csv_outputs {
-  dfa_output<uint64_t> record_offsets;
+  vector_output<uint64_t> record_offsets;
 
   inline constexpr csv_outputs operator+(csv_outputs const& rhs) const
   {
     return {record_offsets + rhs.record_offsets};
   }
+
+  rmm::device_uvector<uint64_t> allocate(
+    cudaStream_t stream,
+    rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
+  {
+    return record_offsets.allocate(stream, mr);
+  }
 };
 
-using csv_superstate = dfa_superstate<csv_state, csv_token, 7>;
+using csv_superstate = cudf::dfa::detail::superstate<csv_state, csv_token, 7>;
 
 struct csv_machine_state {
   csv_superstate superstate;
@@ -99,6 +109,7 @@ struct csv_aggregates {
   uint64_t record_count;
   inline constexpr csv_aggregates operator+(csv_aggregates const rhs) const
   {
+    // auto h_output_state = d_outputs.value(stream);
     auto const is_new_record = state == csv_state::record_end || offset != rhs.record_begin;
     return {
       rhs.state,
@@ -140,13 +151,13 @@ struct csv_fsm_output_op {
       // uint64_t record_begin;
       // uint64_t record_count;
       printf("bid(%2i) tid(%2i): o(%3lu) rec_begin(%3lu) rec_count(%2lu) state(%2i -> %2i)\n",
-        blockIdx.x,
-        threadIdx.x,
-        agg.offset,
-        agg.record_begin,
-        agg.record_count,
-        agg.state_prev,
-        agg.state);
+             blockIdx.x,
+             threadIdx.x,
+             agg.offset,
+             agg.record_begin,
+             agg.record_count,
+             agg.state_prev,
+             agg.state);
     }
 
     if (agg.state != csv_state::record_end) {
@@ -208,16 +219,13 @@ rmm::device_uvector<uint64_t> csv_gather_row_offsets(
                      output_op,
                      stream);
 
+  // retrieve output counts from device
   auto h_output = d_outputs.value(stream);
-  // auto h_output_state = d_outputs.value(stream);
 
-  auto d_record_offsets =
-    rmm::device_uvector<uint64_t>(h_output.record_offsets.output_count, stream, mr);
+  // allocate outputs
+  auto d_record_offsets = h_output.allocate(stream, mr);
 
-  h_output                              = {};
-  h_output.record_offsets.output_buffer = d_record_offsets.data();
-
-  // reset outputs before second call.
+  // set outputs on device
   d_state.set_value({}, stream);
   d_aggregates.set_value({}, stream);
   d_outputs.set_value(h_output, stream);

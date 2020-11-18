@@ -1,4 +1,20 @@
-#pragma once
+/*
+ * Copyright (c) 2019, NVIDIA CORPORATION.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+ #pragma once
 
 #include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/utilities/error.hpp>
@@ -22,62 +38,6 @@ inline constexpr auto ceil_div(Dividend dividend, Divisor divisor)
 {
   return dividend / divisor + (dividend % divisor != 0);
 }
-
-template <typename State, typename Instruction, int N>
-struct dfa_superstate {
-  using Offset                         = std::underlying_type_t<State>;
-  State states[static_cast<Offset>(N)] = {};
-
-  inline constexpr dfa_superstate()
-  {
-    for (auto i = 0; i < N; i++) { states[i] = static_cast<State>(i); }
-  }
-
-  inline constexpr dfa_superstate(State states[N]) : states(states) {}
-
-  inline constexpr dfa_superstate(State state)
-  {
-    for (auto i = 0; i < N; i++) { states[i] = state; }
-  }
-
-  inline constexpr dfa_superstate operator+(Instruction rhs) const
-  {
-    dfa_superstate result;
-    for (auto i = 0; i < N; i++) { result.states[i] = states[i] + rhs; }
-    return result;
-  }
-
-  // should we pass arg by const& ?
-  inline constexpr dfa_superstate operator+(dfa_superstate rhs) const
-  {
-    dfa_superstate result;
-    for (auto i = 0; i < N; i++) { result.states[i] = rhs.states[static_cast<Offset>(states[i])]; }
-    return result;
-  }
-
-  explicit inline constexpr operator State() const { return states[0]; }
-};
-
-template <typename T>
-struct dfa_output {
-  T* output_buffer;
-  uint32_t output_count;
-
-  template <bool output_enabled>
-  inline constexpr void emit(T value)
-  {
-    if (output_enabled) {
-      output_buffer[output_count++] = value;
-    } else {
-      output_count++;
-    }
-  }
-
-  inline constexpr dfa_output operator+(dfa_output other) const
-  {
-    return {output_buffer, output_count + other.output_count};
-  }
-};
 
 // ===== Agent =====================================================================================
 
