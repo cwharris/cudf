@@ -277,7 +277,8 @@ ConfigureTest(FIXED_POINT_TEST "${FIXED_POINT_TEST_SRC}")
 
 set(UNARY_TEST_SRC
     "${CMAKE_CURRENT_SOURCE_DIR}/unary/math_ops_test.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/unary/unary_ops_test.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/unary/unary_ops_test.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/unary/cast_tests.cpp")
 
 ConfigureTest(UNARY_TEST "${UNARY_TEST_SRC}")
 
@@ -664,6 +665,14 @@ set(LISTS_TEST_SRC
     "${CMAKE_CURRENT_SOURCE_DIR}/lists/extract_tests.cpp")
 
 ConfigureTest(LISTS_TEST "${LISTS_TEST_SRC}")
+
+###################################################################################################
+# - dfa superstate tests --------------------------------------------------------------------------
+
+set(DFA_SUPERSTATE_TEST_SRC
+    "${CMAKE_CURRENT_SOURCE_DIR}/dfa/superstate_test.cpp")
+
+ConfigureTest(DFA_SUPERSTATE_TEST "${DFA_SUPERSTATE_TEST_SRC}")
 
 ###################################################################################################
 ### enable testing ################################################################################
