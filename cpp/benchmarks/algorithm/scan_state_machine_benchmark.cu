@@ -18,69 +18,45 @@
 #include <benchmarks/synchronization/synchronization.hpp>
 
 #include <cudf/algorithm/scan_state_machine.cuh>
+#include <cudf/io/detail/csv_record_offsets.cuh>
+
+#include <benchmark/benchmark.h>
 
 #include <thrust/iterator/constant_iterator.h>
 
-#include <algorithm>
-
-template <typename T>
-struct simple_seed_op {
-  inline constexpr T operator()(uint32_t idx, T input) { return 0; }
-};
-
-template <typename T>
-struct simple_scan_op {
-  template <typename Callback>
-  inline __device__ T operator()(T lhs, T rhs, Callback& output)
-  {
-    T result = lhs + rhs;
-
-    if (result % 2 == 0) { output(result); }
-    return result;
-  }
-};
-
-template <typename T>
-struct simple_intersection_op {
-  inline __device__ T operator()(T lhs, T rhs) { return lhs + rhs; }
-};
+rmm::device_vector<char> to_device_vector(std::string input)
+{
+  return rmm::device_vector<char>(input.c_str(), input.c_str() + input.size());
+}
 
 static void BM_scan_state_machines(benchmark::State& state)
 {
-  // using T = uint64_t;
+  auto const input_size = state.range(0);
+  auto input            = thrust::make_constant_iterator<char>('a');
+  auto d_input          = thrust::device_vector<char>(input, input + input_size);
 
-  // uint32_t input_size = state.range(0);
+  // auto d_input = to_device_vector("single\ncolumn\ncsv\n");
 
-  // auto seed_op      = simple_seed_op<T>{};
-  // auto scan_op      = simple_scan_op<T>{};
-  // auto intersect_op = simple_intersection_op<T>{};
+  for (auto _ : state) {
+    cuda_event_timer raii(state, true);
+    benchmark::DoNotOptimize(cudf::io::detail::csv_gather_row_offsets(d_input));
+  }
 
-  // auto input   = thrust::make_constant_iterator<T>(1);
-  // auto d_input = thrust::device_vector<T>(input, input + input_size);
-
-  // for (auto _ : state) {
-  //   cuda_event_timer raii(state, true);
-  //   auto d_result = scan_state_machines<T>(d_input.begin(),  //
-  //                                     d_input.end(),
-  //                                     seed_op,
-  //                                     scan_op,
-  //                                     intersect_op);
-  // }
-
-  // state.SetBytesProcessed(state.iterations() * input_size * sizeof(T));
+  state.SetBytesProcessed(state.iterations() * input_size * sizeof(char));
 }
 
 class ScanStateMachineBenchmark : public cudf::benchmark {
 };
 
-#define DUMMY_BM_BENCHMARK_DEFINE(name)                                           \
+#define SCAN_STATE_MACHINE_BM_BENCHMARK_DEFINE(name)                              \
   BENCHMARK_DEFINE_F(ScanStateMachineBenchmark, name)(::benchmark::State & state) \
   {                                                                               \
     BM_scan_state_machines(state);                                                \
   }                                                                               \
   BENCHMARK_REGISTER_F(ScanStateMachineBenchmark, name)                           \
-    ->Ranges({{1 << 7, 1 << 30}})                                                 \
+    ->RangeMultiplier(32)                                                         \
+    ->Range(1 << 10, 1 << 30)                                                     \
     ->UseManualTime()                                                             \
     ->Unit(benchmark::kMillisecond);
 
-DUMMY_BM_BENCHMARK_DEFINE(scan_state_machines);
+SCAN_STATE_MACHINE_BM_BENCHMARK_DEFINE(scan_state_machines);

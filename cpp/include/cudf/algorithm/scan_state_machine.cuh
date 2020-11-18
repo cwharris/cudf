@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
- #pragma once
+#pragma once
 
 #include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/utilities/error.hpp>
@@ -101,7 +101,7 @@ struct agent {
     uint32_t const thread_offset = threadIdx.x * Policy::ITEMS_PER_THREAD;
 
     // 1: Load Inputs
-    if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 1\n", blockIdx.x, threadIdx.x); }
+    // if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 1\n", blockIdx.x, threadIdx.x); }
 
     typename Policy::Input items[Policy::ITEMS_PER_THREAD];
 
@@ -116,7 +116,7 @@ struct agent {
     __syncthreads();
 
     // 2: Scan State
-    if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 2\n", blockIdx.x, threadIdx.x); }
+    // if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 2\n", blockIdx.x, threadIdx.x); }
 
     auto const thread_state_seed     = *d_inout_state;
     auto const thread_aggregate_seed = *d_inout_aggregates;
@@ -125,7 +125,7 @@ struct agent {
     auto thread_aggregate            = thread_aggregate_seed;
     auto thread_output               = thread_output_seed;
 
-    for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {  // remove the if
+    for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
         thread_state = scan_state_op(thread_state, items[i]);
       }
@@ -151,7 +151,7 @@ struct agent {
     auto const thread_state_prefix = thread_state;
 
     // 3: Scan Aggregate
-    if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 3\n", blockIdx.x, threadIdx.x); }
+    // if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 3\n", blockIdx.x, threadIdx.x); }
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
       if (thread_offset + i < num_items_remaining) {
@@ -178,7 +178,7 @@ struct agent {
     auto const thread_aggregate_prefix = thread_aggregate;
 
     // 4: Scan Output Count
-    if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 4\n", blockIdx.x, threadIdx.x); }
+    // if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 4\n", blockIdx.x, threadIdx.x); }
     thread_state = thread_state_prefix;
 
     for (uint32_t i = 0; i < Policy::ITEMS_PER_THREAD; i++) {
@@ -207,7 +207,7 @@ struct agent {
     auto const thread_output_prefix = thread_output;
 
     // 5: Scan Output Mutation
-    if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 5\n", blockIdx.x, threadIdx.x); }
+    // if (threadIdx.x == 0) { printf("bid(%2i) tid(%2i) Stage 5\n", blockIdx.x, threadIdx.x); }
     thread_state     = thread_state_prefix;
     thread_aggregate = thread_aggregate_prefix;
 
@@ -333,7 +333,7 @@ template <typename InputIterator_,
 struct policy {
   static constexpr uint32_t THREADS_PER_INIT_BLOCK = 128;
   static constexpr uint32_t THREADS_PER_BLOCK      = 32;
-  static constexpr uint32_t ITEMS_PER_THREAD       = 16;
+  static constexpr uint32_t ITEMS_PER_THREAD       = 128;
   static constexpr uint32_t ITEMS_PER_TILE         = ITEMS_PER_THREAD * THREADS_PER_BLOCK;
 
   using InputIterator           = InputIterator_;

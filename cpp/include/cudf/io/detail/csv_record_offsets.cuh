@@ -166,14 +166,14 @@ struct csv_fsm_output_op {
       // uint64_t offset;
       // uint64_t record_begin;
       // uint64_t record_count;
-      printf("bid(%2i) tid(%2i): o(%3lu) rec_begin(%3lu) rec_count(%2lu) state(%2i -> %2i)\n",
-             blockIdx.x,
-             threadIdx.x,
-             agg.offset,
-             agg.record_begin,
-             agg.record_count,
-             agg.state_prev,
-             agg.state);
+      // printf("bid(%2i) tid(%2i): o(%3lu) rec_begin(%3lu) rec_count(%2lu) state(%2i -> %2i)\n",
+      //        blockIdx.x,
+      //        threadIdx.x,
+      //        agg.offset,
+      //        agg.record_begin,
+      //        agg.record_count,
+      //        agg.state_prev,
+      //        agg.state);
     }
 
     if (agg.state != csv_state::record_end) {
