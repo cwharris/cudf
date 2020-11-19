@@ -72,19 +72,31 @@ inline constexpr csv_token get_token(csv_token_options const& options, char prev
 
 // ===== parallel state machine for CSV parsing =====
 
+struct csv_outputs_data {
+  rmm::device_uvector<uint64_t> record_offsets;
+  rmm::device_uvector<uint64_t> field_offsets;
+};
+
 struct csv_outputs {
   vector_output<uint64_t> record_offsets;
+  vector_output<uint64_t> field_offsets;
 
   inline constexpr csv_outputs operator+(csv_outputs const& rhs) const
   {
-    return {record_offsets + rhs.record_offsets};
+    return {
+      record_offsets + rhs.record_offsets,
+      field_offsets + rhs.field_offsets,
+    };
   }
 
-  rmm::device_uvector<uint64_t> allocate(
+  csv_outputs_data allocate(
     cudaStream_t stream,
     rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
   {
-    return record_offsets.allocate(stream, mr);
+    return {
+      record_offsets.allocate(stream, mr),
+      field_offsets.allocate(stream, mr),
+    };
   }
 };
 
@@ -123,16 +135,20 @@ struct csv_aggregates {
   uint64_t offset;
   uint64_t record_begin;
   uint64_t record_count;
+  uint64_t field_begin;
+  uint64_t field_count;
   inline constexpr csv_aggregates operator+(csv_aggregates const rhs) const
   {
-    // auto h_output_state = d_outputs.value(stream);
     auto const is_new_record = state == csv_state::record_end || offset != rhs.record_begin;
+    auto const is_new_field  = state == csv_state::field_end || is_new_record;
     return {
       rhs.state,
       rhs.state_prev,
       rhs.offset,
       is_new_record ? rhs.record_begin : record_begin,
       record_count + rhs.record_count,
+      is_new_field ? rhs.field_begin : field_begin,
+      is_new_record ? rhs.field_count : field_count + rhs.field_count,
     };
   }
 };
@@ -143,7 +159,9 @@ struct csv_aggregates_scan_op {
   {
     auto const state         = static_cast<csv_state>(machine_state.superstate);
     auto const is_new_record = machine_state.state_prev == csv_state::record_end;
+    auto const is_new_field  = machine_state.state_prev == csv_state::field_end || is_new_record;
     auto const is_record_end = state == csv_state::record_end;
+    auto const is_field_end  = state == csv_state::field_end || is_record_end;
 
     return {
       state,
@@ -151,6 +169,8 @@ struct csv_aggregates_scan_op {
       machine_state.offset,
       is_new_record ? machine_state.offset - 1 : prev.record_begin,
       is_record_end + prev.record_count,
+      is_new_field ? machine_state.offset - 1 : prev.field_begin,
+      is_field_end + prev.field_count,
     };
   }
 };
@@ -175,12 +195,6 @@ struct csv_fsm_output_op {
       //        agg.state_prev,
       //        agg.state);
     }
-
-    if (agg.state != csv_state::record_end) {
-      // this is not the end of a row
-      return out;
-    }
-
     if (agg.state_prev == csv_state::comment) {
       // ignore comment rows
       return out;
@@ -201,13 +215,22 @@ struct csv_fsm_output_op {
       return out;
     }
 
-    out.record_offsets.emit<output_enabled>(agg.record_begin);
+    if (agg.state == csv_state::record_end) {
+      // this is the end of a row
+      out.record_offsets.emit<output_enabled>(agg.record_begin);
+      out.field_offsets.emit<output_enabled>(agg.field_begin);
+    }
+
+    if (agg.state == csv_state::field_end) {
+      // this is the end of a field
+      out.field_offsets.emit<output_enabled>(agg.field_begin);
+    }
 
     return out;
   }
 };
 
-rmm::device_uvector<uint64_t> csv_gather_row_offsets(
+csv_outputs_data csv_gather_row_offsets(
   device_span<char> input,
   csv_token_options token_options     = {},
   csv_range_options range_options     = {},
@@ -239,7 +262,7 @@ rmm::device_uvector<uint64_t> csv_gather_row_offsets(
   auto h_output = d_outputs.value(stream);
 
   // allocate outputs
-  auto d_record_offsets = h_output.allocate(stream, mr);
+  auto output_data = h_output.allocate(stream, mr);
 
   // set outputs on device
   d_state.set_value({}, stream);
@@ -257,9 +280,8 @@ rmm::device_uvector<uint64_t> csv_gather_row_offsets(
                      output_op,
                      stream);
 
-  return d_record_offsets;
+  return output_data;
 }
-
 }  // namespace detail
 }  // namespace io
 }  // namespace cudf

@@ -29,16 +29,42 @@ TEST_F(CsvStateMachineTest, CanDetectTerminatedRecords)
   cudaStream_t stream = 0;
   auto d_input        = to_device_vector("single\ncolumn\ncsv\n");
 
-  auto d_row_offsets = cudf::io::detail::csv_gather_row_offsets(d_input, {}, {}, stream);
-  auto h_row_offsets = to_host_vector(d_row_offsets, stream);
+  auto output_data      = cudf::io::detail::csv_gather_row_offsets(d_input, {}, {}, stream);
+  auto h_record_offsets = to_host_vector(output_data.record_offsets, stream);
 
   cudaStreamSynchronize(stream);
 
-  ASSERT_EQ(h_row_offsets.size(), static_cast<uint32_t>(3));
+  ASSERT_EQ(h_record_offsets.size(), static_cast<uint32_t>(3));
 
-  EXPECT_EQ(static_cast<uint64_t>(0), h_row_offsets[0]);
-  EXPECT_EQ(static_cast<uint64_t>(7), h_row_offsets[1]);
-  EXPECT_EQ(static_cast<uint64_t>(14), h_row_offsets[2]);
+  EXPECT_EQ(static_cast<uint64_t>(0), h_record_offsets[0]);
+  EXPECT_EQ(static_cast<uint64_t>(7), h_record_offsets[1]);
+  EXPECT_EQ(static_cast<uint64_t>(14), h_record_offsets[2]);
+}
+
+TEST_F(CsvStateMachineTest, CanDetectTerminatedFields)
+{
+  cudaStream_t stream = 0;
+  auto d_input        = to_device_vector("two,row,doc\nthree,\"column\",csv\n");
+
+  auto output_data      = cudf::io::detail::csv_gather_row_offsets(d_input, {}, {}, stream);
+  auto h_record_offsets = to_host_vector(output_data.record_offsets, stream);
+  auto h_field_offsets  = to_host_vector(output_data.field_offsets, stream);
+
+  cudaStreamSynchronize(stream);
+
+  ASSERT_EQ(h_record_offsets.size(), static_cast<uint32_t>(2));
+
+  EXPECT_EQ(static_cast<uint64_t>(0), h_record_offsets[0]);
+  EXPECT_EQ(static_cast<uint64_t>(12), h_record_offsets[1]);
+
+  ASSERT_EQ(h_field_offsets.size(), static_cast<uint32_t>(6));
+
+  EXPECT_EQ(static_cast<uint64_t>(0), h_field_offsets[0]);
+  EXPECT_EQ(static_cast<uint64_t>(4), h_field_offsets[1]);
+  EXPECT_EQ(static_cast<uint64_t>(8), h_field_offsets[2]);
+  EXPECT_EQ(static_cast<uint64_t>(12), h_field_offsets[3]);
+  EXPECT_EQ(static_cast<uint64_t>(18), h_field_offsets[4]);
+  EXPECT_EQ(static_cast<uint64_t>(27), h_field_offsets[5]);
 }
 
 TEST_F(CsvStateMachineTest, CanTransitionCsvStates)
@@ -55,24 +81,24 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStates)
     "and,\"not\nh,ing\"\n"
     "new\n");
 
-  auto d_row_offsets = cudf::io::detail::csv_gather_row_offsets(d_input, {}, {}, stream);
-  auto h_row_offsets = to_host_vector(d_row_offsets, stream);
+  auto output_data      = cudf::io::detail::csv_gather_row_offsets(d_input, {}, {}, stream);
+  auto h_record_offsets = to_host_vector(output_data.record_offsets, stream);
 
   cudaStreamSynchronize(stream);
 
-  ASSERT_EQ(h_row_offsets.size(), static_cast<uint32_t>(9));
+  ASSERT_EQ(h_record_offsets.size(), static_cast<uint32_t>(9));
 
-  EXPECT_EQ(static_cast<uint64_t>(0), h_row_offsets[0]);
-  EXPECT_EQ(static_cast<uint64_t>(13), h_row_offsets[1]);
-  EXPECT_EQ(static_cast<uint64_t>(29), h_row_offsets[2]);
+  EXPECT_EQ(static_cast<uint64_t>(0), h_record_offsets[0]);
+  EXPECT_EQ(static_cast<uint64_t>(13), h_record_offsets[1]);
+  EXPECT_EQ(static_cast<uint64_t>(29), h_record_offsets[2]);
 
-  EXPECT_EQ(static_cast<uint64_t>(33), h_row_offsets[3]);
-  EXPECT_EQ(static_cast<uint64_t>(46), h_row_offsets[4]);
-  EXPECT_EQ(static_cast<uint64_t>(62), h_row_offsets[5]);
+  EXPECT_EQ(static_cast<uint64_t>(33), h_record_offsets[3]);
+  EXPECT_EQ(static_cast<uint64_t>(46), h_record_offsets[4]);
+  EXPECT_EQ(static_cast<uint64_t>(62), h_record_offsets[5]);
 
-  EXPECT_EQ(static_cast<uint64_t>(66), h_row_offsets[6]);
-  EXPECT_EQ(static_cast<uint64_t>(79), h_row_offsets[7]);
-  EXPECT_EQ(static_cast<uint64_t>(95), h_row_offsets[8]);
+  EXPECT_EQ(static_cast<uint64_t>(66), h_record_offsets[6]);
+  EXPECT_EQ(static_cast<uint64_t>(79), h_record_offsets[7]);
+  EXPECT_EQ(static_cast<uint64_t>(95), h_record_offsets[8]);
 }
 
 TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithRowRange)
@@ -89,7 +115,7 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithRowRange)
     "and,\"not\nh,ing\"\n"
     "new\n");
 
-  auto d_row_offsets = cudf::io::detail::csv_gather_row_offsets(  //
+  auto output_data = cudf::io::detail::csv_gather_row_offsets(  //
     d_input,
     {},
     {
@@ -99,15 +125,15 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithRowRange)
       7,
     });
 
-  auto h_row_offsets = to_host_vector(d_row_offsets, stream);
+  auto h_record_offsets = to_host_vector(output_data.record_offsets, stream);
 
   cudaStreamSynchronize(stream);
 
-  ASSERT_EQ(h_row_offsets.size(), static_cast<uint32_t>(3));
+  ASSERT_EQ(h_record_offsets.size(), static_cast<uint32_t>(3));
 
-  EXPECT_EQ(static_cast<uint64_t>(33), h_row_offsets[0]);
-  EXPECT_EQ(static_cast<uint64_t>(46), h_row_offsets[1]);
-  EXPECT_EQ(static_cast<uint64_t>(62), h_row_offsets[2]);
+  EXPECT_EQ(static_cast<uint64_t>(33), h_record_offsets[0]);
+  EXPECT_EQ(static_cast<uint64_t>(46), h_record_offsets[1]);
+  EXPECT_EQ(static_cast<uint64_t>(62), h_record_offsets[2]);
 }
 
 TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithByteRange)
@@ -125,20 +151,20 @@ TEST_F(CsvStateMachineTest, CanTransitionCsvStatesWithByteRange)
     "and,\"not\nh,ing\"\n"
     "new\n");
 
-  auto d_row_offsets = cudf::io::detail::csv_gather_row_offsets(  //
+  auto output_data = cudf::io::detail::csv_gather_row_offsets(  //
     d_input,
     {},
     {33, 63});
 
-  auto h_row_offsets = to_host_vector(d_row_offsets, stream);
+  auto h_record_offsets = to_host_vector(output_data.record_offsets, stream);
 
   cudaStreamSynchronize(stream);
 
-  ASSERT_EQ(h_row_offsets.size(), static_cast<uint32_t>(3));
+  ASSERT_EQ(h_record_offsets.size(), static_cast<uint32_t>(3));
 
-  EXPECT_EQ(static_cast<uint64_t>(33), h_row_offsets[0]);
-  EXPECT_EQ(static_cast<uint64_t>(46), h_row_offsets[1]);
-  EXPECT_EQ(static_cast<uint64_t>(62), h_row_offsets[2]);
+  EXPECT_EQ(static_cast<uint64_t>(33), h_record_offsets[0]);
+  EXPECT_EQ(static_cast<uint64_t>(46), h_record_offsets[1]);
+  EXPECT_EQ(static_cast<uint64_t>(62), h_record_offsets[2]);
 }
 
 TEST_F(CsvStateMachineTest, CanTransitionStateSegments)
