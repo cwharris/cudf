@@ -384,7 +384,6 @@ size_t reader::impl::find_first_row_start(host_span<char const> const data)
   return std::min(pos + 1, data.size());
 }
 
-<<<<<<< HEAD
 void gather_row_offsets_static(csv_reader_options const &reader_options,
                                parse_options_view parse_opts_view,
                                host_span<char const> const h_data,
@@ -396,16 +395,7 @@ void gather_row_offsets_static(csv_reader_options const &reader_options,
                                size_t skip_rows,
                                int64_t num_rows,
                                bool load_whole_file,
-                               cudaStream_t stream)
-=======
-void reader::impl::gather_row_offsets(host_span<char const> const data,
-                                      size_t range_begin,
-                                      size_t range_end,
-                                      size_t skip_rows,
-                                      int64_t num_rows,
-                                      bool load_whole_file,
-                                      rmm::cuda_stream_view stream)
->>>>>>> f854938b91a8e4501a92210bdfc10a0ca59b13b9
+                               rmm::cuda_stream_view stream)
 {
   constexpr size_t max_chunk_bytes = 64 * 1024 * 1024;  // 64MB
   size_t buffer_size               = std::min(max_chunk_bytes, h_data.size());
@@ -558,7 +548,7 @@ void reader::impl::gather_row_offsets(host_span<char const> const data,
                                       size_t skip_rows,
                                       int64_t num_rows,
                                       bool load_whole_file,
-                                      cudaStream_t stream)
+                                      rmm::cuda_stream_view stream)
 {
   return gather_row_offsets_static(  //
     opts_,
