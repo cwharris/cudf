@@ -22,7 +22,6 @@ cdef extern from "cudf/io/text/data_chunk_source.hpp" \
 cdef extern from "cudf/io/text/data_chunk_source_factories.hpp" \
         namespace "cudf::io::text" nogil:
 
-    unique_ptr[data_chunk_source] make_source(string data) except +
     unique_ptr[data_chunk_source] \
         make_source_from_file(string filename) except +
 
@@ -36,3 +35,28 @@ cdef extern from "cudf/io/text/multibyte_split.hpp" \
     unique_ptr[column] multibyte_split(data_chunk_source source,
                                        string delimiter,
                                        byte_range_info byte_range) except +
+
+cdef extern from * namespace "cudf::io::text":
+    """
+    #include <cudf/io/text/data_chunk_source_factories.hpp>
+    #include <rmm/device_buffer.hpp>
+    #include <iostream>
+    #include <Python.h>
+
+    namespace cudf {
+    namespace io {
+    namespace text {
+      std::unique_ptr<data_chunk_source> my_make_source(PyObject* data) {
+         std::string c_str = PyBytes_AsString(data);
+         std::cout << c_str << std::endl;
+         std::cout << c_str.size() << std::endl;
+         auto out = std::make_unique<string_data_chunk_source>(
+            std::move(c_str)
+         );
+         return out;
+      }
+    }
+    }
+    }
+    """
+    unique_ptr[data_chunk_source] my_make_source(object)
