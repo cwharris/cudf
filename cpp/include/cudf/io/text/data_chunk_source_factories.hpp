@@ -194,14 +194,14 @@ class file_data_chunk_source : public data_chunk_source {
  */
 class string_data_chunk_source : public data_chunk_source {
  public:
-  string_data_chunk_source(std::string const& data) : _data(data) {}
+  string_data_chunk_source(std::string data) : _data(data) {}
   [[nodiscard]] std::unique_ptr<data_chunk_reader> create_reader() const override
   {
     return std::make_unique<istream_data_chunk_reader>(std::make_unique<std::istringstream>(_data));
   }
 
  private:
-  std::string const& _data;
+  std::string _data;
 };
 
 /**
