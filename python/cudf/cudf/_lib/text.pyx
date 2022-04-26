@@ -14,9 +14,9 @@ from cudf._lib.cpp.column.column cimport column
 from cudf._lib.cpp.io.text cimport (
     byte_range_info,
     data_chunk_source,
-    make_source,
     make_source_from_file,
     multibyte_split,
+    my_make_source,
 )
 
 
@@ -40,7 +40,7 @@ def read_text(object filepaths_or_buffers,
     cdef byte_range_info c_byte_range
 
     if isinstance(filepaths_or_buffers, TextIOBase):
-        datasource = move(make_source(filepaths_or_buffers.read().encode()))
+        datasource = move(my_make_source(filepaths_or_buffers.read().encode()))
     else:
         datasource = move(make_source_from_file(filepaths_or_buffers.encode()))
 
